@@ -29,4 +29,21 @@
   <symbol id="icon-heart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
     <path d="M12 20C12 20 4 14.5 4 9C4 6.2 6.2 4 9 4C10.5 4 11.5 4.8 12 5.5C12.5 4.8 13.5 4 15 4C17.8 4 20 6.2 20 9C20 14.5 12 20 12 20Z" />
   </symbol>
+
+  <!-- Enemy character silhouettes: 100x100 viewBox, flat fill (currentColor), evenodd cutouts for face/visor. -->
+
+  <symbol id="icon-char-sentinel" viewBox="0 0 100 100" fill="currentColor" fill-rule="evenodd">
+    <path d="M50 6 L64 16 L68 40 L56 48 L76 56 L88 96 L12 96 L24 56 L44 48 L32 40 L36 16 Z
+             M42 24 L58 24 L58 32 L42 32 Z" />
+  </symbol>
+
+  <symbol id="icon-char-thief" viewBox="0 0 100 100" fill="currentColor" fill-rule="evenodd">
+    <path d="M50 4 L70 28 L64 36 L82 96 L18 96 L36 36 L30 28 Z
+             M50 32 L58 44 L50 56 L42 44 Z" />
+  </symbol>
+
+  <symbol id="icon-char-boss" viewBox="0 0 100 100" fill="currentColor" fill-rule="evenodd">
+    <path d="M50 2 L58 14 L66 6 L70 22 L80 40 L92 96 L78 86 L64 96 L50 88 L36 96 L22 86 L8 96 L20 40 L30 22 L34 6 L42 14 Z
+             M42 30 L58 30 L58 38 L42 38 Z" />
+  </symbol>
 </svg>
