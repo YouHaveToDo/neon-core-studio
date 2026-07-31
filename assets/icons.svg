@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+  <!-- Arcane Ledger icon sprite sheet. Use via <use href="assets/icons.svg#icon-sword" />.
+       All icons: 24x24 viewBox, stroke-based, currentColor. -->
+
+  <symbol id="icon-sword" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M14.5 3.5L20.5 9.5L11 19L7 20L8 16L17.5 6.5" />
+    <path d="M4 20L7.5 16.5" />
+    <path d="M13 5L19 11" />
+  </symbol>
+
+  <symbol id="icon-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 3L19 6V11C19 15.5 16 19 12 21C8 19 5 15.5 5 11V6L12 3Z" />
+  </symbol>
+
+  <symbol id="icon-crown" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 18H20L21 8L16 12L12 6L8 12L3 8L4 18Z" />
+  </symbol>
+
+  <symbol id="icon-mana" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 3C12 3 6 11 6 15.5C6 19 8.7 21 12 21C15.3 21 18 19 18 15.5C18 11 12 3 12 3Z" />
+  </symbol>
+
+  <symbol id="icon-skull" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 3C7.5 3 5 6.2 5 10C5 12.5 6 14 7 15V18H9V16H10.5V18H13.5V16H15V18H17V15C18 14 19 12.5 19 10C19 6.2 16.5 3 12 3Z" />
+    <circle cx="9" cy="10" r="1.3" fill="currentColor" stroke="none" />
+    <circle cx="15" cy="10" r="1.3" fill="currentColor" stroke="none" />
+  </symbol>
+
+  <symbol id="icon-heart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 20C12 20 4 14.5 4 9C4 6.2 6.2 4 9 4C10.5 4 11.5 4.8 12 5.5C12.5 4.8 13.5 4 15 4C17.8 4 20 6.2 20 9C20 14.5 12 20 12 20Z" />
+  </symbol>
+</svg>
