@@ -1,0 +1,24 @@
+{
+  "name": "arcane-ledger-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Backend for Arcane Ledger online PvP: auth, deck persistence, match history, relay (later phases).",
+  "type": "commonjs",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "migrate": "node scripts/migrate.js",
+    "smoke-test": "node scripts/smoke-test.js"
+  },
+  "dependencies": {
+    "argon2": "^0.41.1",
+    "cookie": "^0.7.2",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "pg": "^8.13.1"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
