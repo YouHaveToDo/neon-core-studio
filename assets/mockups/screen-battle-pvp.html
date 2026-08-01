@@ -24,6 +24,24 @@
     <path d="M12 20C12 20 4 14.5 4 9C4 6.2 6.2 4 9 4C10.5 4 11.5 4.8 12 5.5C12.5 4.8 13.5 4 15 4C17.8 4 20 6.2 20 9C20 14.5 12 20 12 20Z" />
   </symbol>
 
+  <!-- icon-char-opponent-{a,b,c}: see assets/icons.svg for the source of truth
+       definition and the reasoning comment (generic/decorative, not tied to
+       any account, purely cosmetic 3-way variety). -->
+  <symbol id="icon-char-opponent-a" viewBox="0 0 100 100" fill="currentColor">
+    <path d="M34 30 A16 16 0 1 1 66 30 A16 16 0 1 1 34 30 Z
+             M18 96 C18 66 32 48 50 48 C68 48 82 66 82 96 Z" />
+  </symbol>
+  <symbol id="icon-char-opponent-b" viewBox="0 0 100 100" fill="currentColor">
+    <path d="M33 33 C33 20 40 11 50 11 C60 11 67 20 67 33 C67 42 60 47 50 47 C40 47 33 42 33 33 Z
+             M16 96 C16 66 31 47 50 47 C69 47 84 66 84 96 Z" />
+  </symbol>
+  <symbol id="icon-char-opponent-c" viewBox="0 0 100 100" fill="currentColor">
+    <path d="M35 28 A15 15 0 1 1 65 28 A15 15 0 1 1 35 28 Z
+             M33 30 C25 40 23 56 28 70 L38 64 C34 52 35 38 40 29 Z
+             M67 30 C75 40 77 56 72 70 L62 64 C66 52 65 38 60 29 Z
+             M20 96 C20 70 33 52 50 52 C67 52 80 70 80 96 Z" />
+  </symbol>
+
   <!-- card-back: see assets/icons.svg for the source of truth definition -->
   <symbol id="card-back" viewBox="0 0 132 184">
     <defs>
@@ -66,7 +84,7 @@
 <div class="mockup-page">
 
   <div>
-    <div class="mockup-caption">screen: 배틀 화면 — 상대(=실제 플레이어) 패널이 기존 적 포트레이트를 대체 (spec §7.2, plan 4.9)</div>
+    <div class="mockup-caption">screen: 배틀 화면 — 상대(=실제 플레이어) 패널 (spec §7.2, plan 4.9, art-direction.md §8.5 rev.2)</div>
     <p class="mockup-note" style="margin-bottom:16px;">
       타이머는 활성 플레이어 1명당 하나뿐인 공유 카운트다운(spec §7.3) — 양쪽에 동시에 서로 다른 숫자가 떠
       있는 것이 아니므로, 아래 두 상태(내 턴 / 상대 턴)로 나눠 "타이머가 항상 활성 플레이어 쪽 컨트롤
@@ -81,6 +99,11 @@
 
           <div class="opponent-panel">
             <div class="opponent-identity">
+              <div class="opponent-portrait-wrap">
+                <div class="opponent-portrait-frame">
+                  <svg class="opponent-portrait-silhouette"><use href="#icon-char-opponent-a"></use></svg>
+                </div>
+              </div>
               <span class="opponent-name">야공이</span>
             </div>
             <div class="hp-bar-track enemy-hp mini-hp-bar">
@@ -166,6 +189,11 @@
 
           <div class="opponent-panel">
             <div class="opponent-identity">
+              <div class="opponent-portrait-wrap">
+                <div class="opponent-portrait-frame">
+                  <svg class="opponent-portrait-silhouette"><use href="#icon-char-opponent-b"></use></svg>
+                </div>
+              </div>
               <span class="opponent-name">야공이</span>
             </div>
             <div class="hp-bar-track enemy-hp mini-hp-bar">
@@ -244,16 +272,46 @@
     </div>
 
     <p class="mockup-note">
-      상대 영역: 기존 포트레이트/실루엣/의도 배지(art-direction.md §5-6)를 완전히 제거하고, 아래 플레이어 바와
-      대칭되는 구조(이름 → HP바 → 방어도/마나/손패매수/덱·버림더미)로 재구성했다 — "실제 상대는 몬스터가
-      아니라 사람"이라는 것을 시각적으로도 드러내려는 의도적 선택(§9 참고, CEO/기획 확인 필요 항목으로 보고서에
-      플래그). 손패는 카드 뒷면 3장을 겹쳐 쌓은 <code>.hand-count-stack</code> + 숫자로 "매수만" 표시.
-      HP바/마나 방울/덱·버림더미 배지는 전부 기존 컴포넌트 그대로 재사용(신규 CSS 없음). 내 턴이 아닐 때는
-      손패 카드에 기존 <code>.unaffordable</code> 스타일(45% 불투명, 클릭 무반응)을 재사용해 "선택 불가"를
-      표시하고 화면 상단에 "상대 턴" 라벨이 뜬다(spec §7.2) — 기존 <code>.card.unaffordable</code>은 마나
-      부족 표시 용도였지만 "지금 이 카드를 낼 수 없다"는 의미 자체는 동일하므로 새 클래스를 만들지 않고
-      재사용했다.
+      상대 영역: 이름 → 포트레이트+HP바 → 방어도/마나/손패매수/덱·버림더미 순서로, 아래 플레이어 바와 대칭되는
+      구조는 그대로 유지했다(§9 참고). CEO 리뷰에서 1차안(포트레이트를 아예 없앤 순수 데이터 패널)이 "캐릭터
+      아트가 없다"는 이유로 반려되어, 기존 적 포트레이트(art-direction.md §5)의 프레임+실루엣 기법을 재사용한
+      원형 초상을 <code>.opponent-identity</code> 안, 이름 옆에 작게 배치했다(64px — 상단 바가 이미 조밀해서
+      §5의 96px 몬스터 포트레이트처럼 화면 중앙을 크게 차지하는 구성은 쓰지 않았다). 손패는 카드 뒷면 3장을
+      겹쳐 쌓은 <code>.hand-count-stack</code> + 숫자로 "매수만" 표시. HP바/마나 방울/덱·버림더미 배지는 전부
+      기존 컴포넌트 그대로 재사용(신규 CSS 없음). 내 턴이 아닐 때는 손패 카드에 기존
+      <code>.unaffordable</code> 스타일(45% 불투명, 클릭 무반응)을 재사용해 "선택 불가"를 표시하고 화면 상단에
+      "상대 턴" 라벨이 뜬다(spec §7.2) — 기존 <code>.card.unaffordable</code>은 마나 부족 표시 용도였지만
+      "지금 이 카드를 낼 수 없다"는 의미 자체는 동일하므로 새 클래스를 만들지 않고 재사용했다.
     </p>
+  </div>
+
+  <div>
+    <div class="mockup-caption">asset: 상대 포트레이트 — 프레임+실루엣 재사용, 몬스터가 아닌 "일반적인 사람"으로 재해석 (art-direction.md §8.5 rev.2)</div>
+    <div class="mockup-row" style="align-items:center;">
+      <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+        <div class="opponent-portrait-frame"><svg class="opponent-portrait-silhouette"><use href="#icon-char-opponent-a"></use></svg></div>
+        <span class="mockup-caption" style="border-top:none; padding-top:0;">variant a</span>
+      </div>
+      <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+        <div class="opponent-portrait-frame"><svg class="opponent-portrait-silhouette"><use href="#icon-char-opponent-b"></use></svg></div>
+        <span class="mockup-caption" style="border-top:none; padding-top:0;">variant b</span>
+      </div>
+      <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+        <div class="opponent-portrait-frame"><svg class="opponent-portrait-silhouette"><use href="#icon-char-opponent-c"></use></svg></div>
+        <span class="mockup-caption" style="border-top:none; padding-top:0;">variant c</span>
+      </div>
+      <p class="mockup-note" style="flex:1; min-width:280px;">
+        3개 모두 같은 프레임(원형, <code>--steel</code> 테두리)과 같은 실루엣 기반(머리+어깨) — 헤어라인
+        디테일만 다르게 그려서 "동일 계열의 다른 스타일"로 읽히게 했다(개별 캐릭터가 아니라 하나의 제네릭
+        피규어의 3가지 겉모습이라는 인상). 몬스터 실루엣(art-direction.md §5)과 달리 투구 슬릿·후드 그림자 같은
+        얼굴 컷아웃을 넣지 않았다 — 컷아웃은 "가면/정체를 가림"이라는 몬스터·도적 계열 코드라서, 사람을
+        나타낼 때는 오히려 안 쓰는 쪽이 더 중립적이다. 프레임 색도 몬스터용 crimson/gold(적대/보스 신호) 대신
+        <code>--steel</code>을 썼다 — PvP 상대는 "위협으로 코드화된 몬스터"가 아니라 그냥 사람이라는 점을
+        색으로도 구분했다. 계정 아바타 시스템이 이번 마일스톤 스코프 밖(spec §4.4)이라 특정 계정에 묶이지
+        않는 순수 장식 요소이고, 세 변형 중 무엇을 보여줄지는 매치마다(예: 방 코드로 시드한) 의사난수로
+        고르는 것을 제안한다 — 선택 로직 자체는 게임 로직이므로 프로그래머 담당(Phase 4.7).
+      </p>
+    </div>
   </div>
 
   <div>

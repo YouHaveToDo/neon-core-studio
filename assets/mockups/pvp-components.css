@@ -130,12 +130,52 @@
 .screen-battle-mock { position: relative; overflow: hidden; background: radial-gradient(ellipse at 50% -10%, #241a2c 0%, var(--bg) 55%); }
 
 /* ============================================== 4.9 battle: opponent panel
-   Replaces the old scripted-enemy portrait + intent badge (art-direction.md
-   §5-6) entirely — no portrait/character art here on purpose (see report). */
+   Revision (CEO review of the first pass): the original version replaced the
+   scripted-enemy portrait + intent badge (art-direction.md §5-6) with a pure
+   data panel and no character art at all. That's reverted here — the panel
+   now carries a small circular portrait using the same frame+silhouette
+   technique as §5, reworked into a generic "opponent" figure (see
+   .opponent-portrait-frame below and art-direction.md §8.5 for the reasoning
+   and the open question this leaves). */
 
 .opponent-panel { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 16px 16px 10px; position: relative; z-index: 1; }
-.opponent-identity { display: flex; align-items: center; gap: 8px; }
+.opponent-identity { display: flex; align-items: center; gap: 10px; }
 .opponent-name { font-family: var(--font-serif); font-size: 15px; letter-spacing: 0.02em; color: var(--ink); }
+
+/* Generic opponent portrait — deliberately its own component rather than a
+   reuse of .portrait-frame/.portrait-silhouette (css/style.css §5): those are
+   built around a hex/diamond clip-path and a hardcoded crimson/gold pulse
+   keyframe for monster archetypes, and a circular frame in a cooler color
+   needs almost every property overridden anyway, so a fresh class reads
+   cleaner than a heavily-overridden reuse (same call as 8.2's deck-slot-tile
+   vs. card frame). What *is* reused is the technique: outline frame (badge)
+   containing a separate silhouette layer, radial-gradient interior + dual
+   box-shadow (glow + inset vignette), ambient pulse with a
+   prefers-reduced-motion guard — all lifted from art-direction.md §5/§7.
+   Frame uses --steel (not --crimson/--gold) on purpose: crimson/gold are
+   already the game's "hostile monster" / "boss" signals, and a PvP opponent
+   is a person, not a threat-coded enemy type — steel reads neutral. Circular
+   frame shape (vs. the monster hex/diamond) is the other deliberate
+   differentiator: a portrait-photo silhouette, not a monster-badge shape. */
+.opponent-portrait-wrap { position: relative; flex-shrink: 0; }
+.opponent-portrait-frame {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 50% 40%, #223038, var(--bg-raised) 75%);
+  border: 2px solid var(--steel);
+  box-shadow: 0 0 16px rgba(63, 143, 166, 0.35), inset 0 0 12px rgba(0, 0, 0, 0.55);
+  animation: opponent-portrait-pulse 3.6s ease-in-out infinite;
+}
+.opponent-portrait-silhouette { width: 66%; height: 66%; color: var(--steel); filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6)); }
+@keyframes opponent-portrait-pulse {
+  0%, 100% { box-shadow: 0 0 16px rgba(63, 143, 166, 0.35), inset 0 0 12px rgba(0, 0, 0, 0.55); }
+  50% { box-shadow: 0 0 24px rgba(63, 143, 166, 0.55), inset 0 0 12px rgba(0, 0, 0, 0.55); }
+}
+@media (prefers-reduced-motion: reduce) { .opponent-portrait-frame { animation: none; } }
 .opponent-meta-row { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; justify-content: center; margin-top: 6px; }
 .opponent-meta-row .vital { font-size: 13px; }
 .opponent-meta-row .pile-counters { margin-left: 0; }
