@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>ARCANE LEDGER</title>
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+<!-- Icon sprite, inlined from assets/icons.svg so <use href="#icon-x"> always
+     resolves (external <use href="assets/icons.svg#...">  fragment references
+     are unreliable across browsers when the page is opened via file://,
+     which this game must support). Symbol markup and ids are identical to
+     assets/icons.svg. -->
+<svg style="display:none" aria-hidden="true">
+  <symbol id="icon-sword" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M14.5 3.5L20.5 9.5L11 19L7 20L8 16L17.5 6.5" />
+    <path d="M4 20L7.5 16.5" />
+    <path d="M13 5L19 11" />
+  </symbol>
+  <symbol id="icon-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 3L19 6V11C19 15.5 16 19 12 21C8 19 5 15.5 5 11V6L12 3Z" />
+  </symbol>
+  <symbol id="icon-crown" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 18H20L21 8L16 12L12 6L8 12L3 8L4 18Z" />
+  </symbol>
+  <symbol id="icon-mana" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 3C12 3 6 11 6 15.5C6 19 8.7 21 12 21C15.3 21 18 19 18 15.5C18 11 12 3 12 3Z" />
+  </symbol>
+  <symbol id="icon-skull" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 3C7.5 3 5 6.2 5 10C5 12.5 6 14 7 15V18H9V16H10.5V18H13.5V16H15V18H17V15C18 14 19 12.5 19 10C19 6.2 16.5 3 12 3Z" />
+    <circle cx="9" cy="10" r="1.3" fill="currentColor" stroke="none" />
+    <circle cx="15" cy="10" r="1.3" fill="currentColor" stroke="none" />
+  </symbol>
+  <symbol id="icon-heart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 20C12 20 4 14.5 4 9C4 6.2 6.2 4 9 4C10.5 4 11.5 4.8 12 5.5C12.5 4.8 13.5 4 15 4C17.8 4 20 6.2 20 9C20 14.5 12 20 12 20Z" />
+  </symbol>
+  <symbol id="icon-char-sentinel" viewBox="0 0 100 100" fill="currentColor" fill-rule="evenodd">
+    <path d="M50 6 L64 16 L68 40 L56 48 L76 56 L88 96 L12 96 L24 56 L44 48 L32 40 L36 16 Z
+             M42 24 L58 24 L58 32 L42 32 Z" />
+  </symbol>
+  <symbol id="icon-char-thief" viewBox="0 0 100 100" fill="currentColor" fill-rule="evenodd">
+    <path d="M50 4 L70 28 L64 36 L82 96 L18 96 L36 36 L30 28 Z
+             M50 32 L58 44 L50 56 L42 44 Z" />
+  </symbol>
+  <symbol id="icon-char-boss" viewBox="0 0 100 100" fill="currentColor" fill-rule="evenodd">
+    <path d="M50 2 L58 14 L66 6 L70 22 L80 40 L92 96 L78 86 L64 96 L50 88 L36 96 L22 86 L8 96 L20 40 L30 22 L34 6 L42 14 Z
+             M42 30 L58 30 L58 38 L42 38 Z" />
+  </symbol>
+</svg>
+
+<div id="app">
+
+  <header class="topbar">
+    <span class="brand">ARCANE LEDGER</span>
+    <div class="topbar-right">
+      <span id="room-label" class="room-label"></span>
+      <button id="btn-howto" class="btn-howto hidden" aria-label="게임 방법 보기" title="게임 방법 보기">?</button>
+    </div>
+  </header>
+
+  <!-- Start screen -->
+  <section id="screen-start" class="screen">
+    <div class="start-panel">
+      <h1>ARCANE LEDGER</h1>
+      <p class="subtitle">오컬트 장부 던전 덱빌더 — 버티컬 슬라이스</p>
+      <button id="btn-begin" class="btn btn-primary">Begin Run</button>
+    </div>
+  </section>
+
+  <!-- How to Play screen (docs/design/onboarding.md) -->
+  <section id="screen-howto" class="screen hidden">
+    <div class="overlay-panel howto-panel">
+      <h2>How to Play</h2>
+      <p class="howto-goal">카드로 적을 물리치며 <strong>폐허의 심판관</strong>까지 도달하라.</p>
+
+      <div class="howto-section">
+        <h3>턴 진행</h3>
+        <ol class="howto-steps">
+          <li><span class="step-num">1</span><span>카드 5장을 뽑는다</span></li>
+          <li><span class="step-num">2</span><svg class="icon step-icon"><use href="#icon-mana"></use></svg><span>마나 안에서 카드를 낸다</span></li>
+          <li><span class="step-num">3</span><span>"End Turn"을 누른다</span></li>
+          <li><span class="step-num">4</span><svg class="icon step-icon"><use href="#icon-sword"></use></svg><span>적이 예고된 행동을 실행한다</span></li>
+        </ol>
+      </div>
+
+      <div class="howto-section">
+        <h3>카드 읽는 법</h3>
+        <div class="howto-card-wrap">
+          <div id="howto-card-slot" class="howto-card-slot"></div>
+          <div class="howto-callouts">
+            <div class="howto-callout"><span class="arrow">&larr;</span> 좌상단 숫자 = 마나 비용</div>
+            <div class="howto-callout"><span class="arrow">&larr;</span> 상단 색 바 = 종류 (Attack/Skill/Power)</div>
+            <div class="howto-callout"><span class="arrow">&larr;</span> 하단 텍스트 = 효과</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="howto-section">
+        <h3><svg class="icon"><use href="#icon-sword"></use></svg> 의도(Intent) 아이콘</h3>
+        <p>적 위의 배지는 적의 <strong>다음</strong> 행동을 미리 알려준다 — 검 아이콘+숫자 = 이만큼 공격, 방패 아이콘+숫자 = 이만큼 방어. 미리 보고 대응을 준비하라.</p>
+      </div>
+
+      <div class="howto-section">
+        <h3><svg class="icon"><use href="#icon-shield"></use></svg> 방어도(Block)</h3>
+        <p>방패 아이콘 옆 숫자는 이번에 받는 피해를 그만큼 막아준다. 내 다음 턴이 시작되기 전에 사라진다.</p>
+      </div>
+
+      <div class="howto-section">
+        <h3>카드 내는 법</h3>
+        <p>카드를 탭하면 선택된다. 공격 카드는 이어서 적을 탭해서 조준한다. 스킬/파워 카드는 탭하는 즉시 발동된다.</p>
+      </div>
+
+      <button id="btn-howto-close" class="btn btn-primary howto-close-btn"></button>
+    </div>
+  </section>
+
+  <!-- Battle screen -->
+  <section id="screen-battle" class="screen hidden">
+    <div class="battle-grain"></div>
+
+    <!-- Opponent panel: functional placeholder for the online-pvp-plan.md
+         task 2.4 state-shape refactor (state.opponent is now a mirrored
+         player state, not a scripted enemy). Visual redesign is Phase 4.9
+         art debt (spec-online-pvp.md §9) — reuses existing generic
+         hp-bar/mana-gauge/pile-badge/vital components rather than the old
+         portrait/frame/intent-badge markup, which no longer applies to a
+         real player opponent. -->
+    <div class="enemy-area" id="opponent-area">
+      <div id="opponent-name" class="enemy-name"></div>
+      <div class="hp-bar-track enemy-hp">
+        <div id="opponent-hp-fill" class="hp-bar-fill"></div>
+        <span id="opponent-hp-text" class="hp-bar-text"></span>
+      </div>
+      <div class="player-vitals">
+        <div id="opponent-block-wrap" class="vital hidden">
+          <svg class="icon icon-block"><use href="#icon-shield"></use></svg>
+          <span id="opponent-block-text"></span>
+        </div>
+      </div>
+      <div id="opponent-mana-gauge" class="mana-gauge"></div>
+      <div class="pile-counters">
+        <div class="pile-badge" title="상대 뽑을 카드">
+          <span class="pile-label">Deck</span>
+          <span id="opponent-draw-count">0</span>
+        </div>
+        <div class="pile-badge" title="상대 버린 카드">
+          <span class="pile-label">Discard</span>
+          <span id="opponent-discard-count">0</span>
+        </div>
+        <div class="pile-badge" title="상대 손패 매수">
+          <span class="pile-label">Hand</span>
+          <span id="opponent-hand-count">0</span>
+        </div>
+      </div>
+    </div>
+
+    <div id="dmg-popup-layer" class="dmg-popup-layer"></div>
+
+    <div class="player-bar">
+      <div class="player-vitals">
+        <div class="vital">
+          <svg class="icon icon-heart"><use href="#icon-heart"></use></svg>
+          <span id="player-hp-text"></span>
+        </div>
+        <div id="player-block-wrap" class="vital hidden">
+          <svg class="icon icon-block"><use href="#icon-shield"></use></svg>
+          <span id="player-block-text"></span>
+        </div>
+      </div>
+      <div class="mana-block">
+        <span class="mana-caption">Mana</span>
+        <div id="mana-gauge" class="mana-gauge"></div>
+      </div>
+      <div class="pile-counters">
+        <div class="pile-badge" title="뽑을 카드">
+          <span class="pile-label">Deck</span>
+          <span id="draw-count">0</span>
+        </div>
+        <div class="pile-badge" title="버린 카드">
+          <span class="pile-label">Discard</span>
+          <span id="discard-count">0</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="hand-row">
+      <div id="hand-area" class="hand-area"></div>
+      <button id="btn-end-turn" class="btn btn-end-turn">End Turn</button>
+    </div>
+  </section>
+
+  <!-- Reward/Rest screens removed: spec-online-pvp.md §2 kills the dungeon-run
+       structure (reward-card-pick, rest-heal) entirely — a PvP match is a
+       standalone single battle. See online-pvp-plan.md task 2.4. -->
+
+  <!-- Victory screen -->
+  <section id="screen-victory" class="screen hidden">
+    <div class="overlay-panel">
+      <svg class="icon icon-crown-big"><use href="#icon-crown"></use></svg>
+      <h2>승리</h2>
+      <p class="subtitle">폐허의 심판관을 물리치고 던전을 정복했다.</p>
+      <button id="btn-restart-victory" class="btn btn-primary">New Run</button>
+    </div>
+  </section>
+
+  <!-- Defeat screen -->
+  <section id="screen-defeat" class="screen hidden">
+    <div class="overlay-panel">
+      <svg class="icon icon-skull-big"><use href="#icon-skull"></use></svg>
+      <h2>패배</h2>
+      <p class="subtitle">장부가 여기서 닫혔다.</p>
+      <button id="btn-restart-defeat" class="btn btn-primary">New Run</button>
+    </div>
+  </section>
+
+</div>
+
+<script src="js/data.js"></script>
+<script src="js/state.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

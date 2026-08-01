@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<title>ARCANE LEDGER — 덱 슬롯 목록 목업 (plan 3.3, spec §5.4)</title>
+<link rel="stylesheet" href="../../css/style.css" />
+<link rel="stylesheet" href="pvp-components.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <span class="brand">ARCANE LEDGER</span>
+</header>
+
+<div class="mockup-page">
+
+  <div>
+    <div class="mockup-caption">screen: 덱 관리 — 슬롯 목록 (spec §5.4)</div>
+    <div class="deck-slots">
+
+      <!-- Slot 1: filled, valid (starter deck) -->
+      <div class="deck-slot-tile">
+        <div class="slot-name">스타터 덱</div>
+        <div class="slot-count">24/30장</div>
+        <div class="slot-actions">
+          <button class="btn btn-secondary">편집</button>
+          <button class="btn btn-secondary">삭제</button>
+        </div>
+      </div>
+
+      <!-- Slot 2: filled, INVALID (under 20 cards) -->
+      <div class="deck-slot-tile">
+        <span class="badge-incomplete">미완성</span>
+        <div class="slot-name">번개 러시</div>
+        <div class="slot-count">14/30장</div>
+        <div class="slot-actions">
+          <button class="btn btn-secondary">편집</button>
+          <button class="btn btn-secondary">삭제</button>
+        </div>
+      </div>
+
+      <!-- Slot 3: empty -->
+      <div class="deck-slot-tile empty">
+        <span class="plus">+</span>
+        <span>새 덱 만들기</span>
+      </div>
+
+    </div>
+    <p class="mockup-note">
+      항상 정확히 3개 슬롯(계정당 최대, spec §5.2)이 나란히 표시됨. 채워진 슬롯은 덱 이름 + <code>N/30</code>
+      매수 + 편집/삭제 버튼. 20장 미만이면 <code>.badge-incomplete</code> (crimson, art-direction.md §1의 경고색
+      재사용)가 타일 우상단에 붙는다 — 카드 자체가 아니라 UI 타일이므로 카드 프레임(132×184)을 재사용하지
+      않고 별도의 패널 컴포넌트로 설계했다(§5.4 근거는 보고서 참고). 빈 슬롯은 점선 테두리 + "+ 새 덱 만들기"
+      플레이스홀더.
+    </p>
+  </div>
+
+  <div>
+    <div class="mockup-caption">state: 삭제 확인 다이얼로그 (spec §5.4)</div>
+    <div class="overlay-panel" style="max-width:360px;">
+      <h2 style="font-size:18px;">이 덱을 삭제하시겠습니까?</h2>
+      <p class="subtitle" style="margin-bottom:20px;">되돌릴 수 없습니다.</p>
+      <div style="display:flex; gap:10px; justify-content:center;">
+        <button class="btn btn-secondary">취소</button>
+        <button class="btn" style="border-color:var(--crimson); color:var(--crimson);">삭제</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

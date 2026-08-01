@@ -46,4 +46,67 @@
     <path d="M50 2 L58 14 L66 6 L70 22 L80 40 L92 96 L78 86 L64 96 L50 88 L36 96 L22 86 L8 96 L20 40 L30 22 L34 6 L42 14 Z
              M42 30 L58 30 L58 38 L42 38 Z" />
   </symbol>
+
+  <!-- Online-PvP additions (spec-online-pvp.md §9 art debt). New UI icons: 24x24
+       viewBox, stroke-based, currentColor — same convention as the icon set above. -->
+
+  <symbol id="icon-mail" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3" y="5" width="18" height="14" rx="2" />
+    <path d="M4 6.5L12 13L20 6.5" />
+  </symbol>
+
+  <symbol id="icon-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="5" y="11" width="14" height="10" rx="2" />
+    <path d="M8 11V7.5C8 5 9.8 3 12 3C14.2 3 16 5 16 7.5V11" />
+  </symbol>
+
+  <symbol id="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="9" y="9" width="11" height="11" rx="1.5" />
+    <path d="M6 15H5C4.4 15 4 14.6 4 14V5C4 4.4 4.4 4 5 4H14C14.6 4 15 4.4 15 5V6" />
+  </symbol>
+
+  <symbol id="icon-warning" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 3L22 20H2L12 3Z" />
+    <line x1="12" y1="9.5" x2="12" y2="14.5" />
+    <circle cx="12" cy="17.3" r="0.9" fill="currentColor" stroke="none" />
+  </symbol>
+
+  <!-- Card back: 132x184 viewBox to match the card frame exactly (art-direction.md
+       §3). Fixed palette colors (not currentColor) since a hidden card always reads
+       the same regardless of context: geometric/emblematic, no illustration, same
+       constraint as the rest of the set. Gold border distinguishes it at a glance
+       from a card front (front border uses the faint line token, only the top
+       type-bar is colored). -->
+  <symbol id="card-back" viewBox="0 0 132 184">
+    <defs>
+      <linearGradient id="cardback-bg" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#241a2c" />
+        <stop offset="1" stop-color="#1e1624" />
+      </linearGradient>
+      <radialGradient id="cardback-glow" cx="50%" cy="50%" r="50%">
+        <stop offset="0" stop-color="#3a2c46" />
+        <stop offset="1" stop-color="#1e1624" stop-opacity="0" />
+      </radialGradient>
+    </defs>
+    <rect x="0.75" y="0.75" width="130.5" height="182.5" rx="8" fill="url(#cardback-bg)" stroke="#d4af37" stroke-width="1.5" />
+    <rect x="8" y="8" width="116" height="168" rx="4" fill="none" stroke="rgba(242,233,216,0.16)" stroke-width="1" />
+    <circle cx="66" cy="92" r="36" fill="url(#cardback-glow)" />
+    <g stroke="#d4af37" stroke-opacity="0.28" stroke-width="1">
+      <line x1="66" y1="30" x2="66" y2="50" />
+      <line x1="66" y1="134" x2="66" y2="154" />
+      <line x1="20" y1="92" x2="40" y2="92" />
+      <line x1="92" y1="92" x2="112" y2="92" />
+      <line x1="34" y1="52" x2="47" y2="65" />
+      <line x1="98" y1="52" x2="85" y2="65" />
+      <line x1="34" y1="132" x2="47" y2="119" />
+      <line x1="98" y1="132" x2="85" y2="119" />
+    </g>
+    <g stroke="#d4af37" stroke-width="1.4" fill="none">
+      <rect x="16" y="20" width="9" height="9" transform="rotate(45 20.5 24.5)" />
+      <rect x="107" y="20" width="9" height="9" transform="rotate(45 111.5 24.5)" />
+      <rect x="16" y="155" width="9" height="9" transform="rotate(45 20.5 159.5)" />
+      <rect x="107" y="155" width="9" height="9" transform="rotate(45 111.5 159.5)" />
+    </g>
+    <path transform="translate(44.4,70.4) scale(1.8)" fill="#d4af37" d="M12 3C12 3 6 11 6 15.5C6 19 8.7 21 12 21C15.3 21 18 19 18 15.5C18 11 12 3 12 3Z" />
+  </symbol>
 </svg>

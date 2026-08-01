@@ -1,0 +1,194 @@
+/* ARCANE LEDGER — Online PvP visual additions (spec-online-pvp.md §9 art debt).
+   Extends css/style.css (loaded first, defines --bg/--gold/etc. tokens and the
+   .card / .btn / .hp-bar-track / .mana-gauge / .pile-badge components reused
+   below). No new color tokens introduced — everything here is built from the
+   existing palette in art-direction.md §1. Ready to be lifted into
+   css/style.css by the programmer when phases 4.1/4.5/4.7/5.1 wire these up. */
+
+/* ---------------------------------------------------- mockup-review chrome
+   (meta labels for this review file only — not part of any in-game screen) */
+.mockup-page { max-width: 1180px; margin: 0 auto; padding: 32px 24px 100px; display: flex; flex-direction: column; gap: 52px; }
+.mockup-caption { font-family: var(--font-mono); font-size: 11px; color: var(--ink-faint); letter-spacing: 0.04em; text-transform: uppercase; border-top: 1px dashed var(--line); padding-top: 8px; margin-bottom: 16px; }
+.mockup-row { display: flex; gap: 28px; flex-wrap: wrap; align-items: flex-start; }
+.mockup-note { font-size: 12px; color: var(--ink-dim); background: var(--bg-inset); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; max-width: 720px; line-height: 1.55; }
+
+/* ============================================================= 4.2 auth */
+
+.auth-panel { max-width: 380px; }
+.auth-tabs { display: flex; gap: 6px; background: var(--bg-inset); border: 1px solid var(--line); border-radius: 8px; padding: 3px; margin-bottom: 22px; }
+.auth-tab { flex: 1; border: none; background: transparent; color: var(--ink-faint); font-size: 12.5px; font-weight: 600; font-family: var(--font-sans); padding: 8px 0; border-radius: 6px; transition: background 0.15s ease, color 0.15s ease; }
+.auth-tab.active { background: var(--bg-raised); color: var(--gold); box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35); }
+.auth-form { display: flex; flex-direction: column; gap: 14px; text-align: left; }
+.field { display: flex; flex-direction: column; gap: 5px; }
+.field-label { font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); }
+.field-input { display: flex; align-items: center; gap: 8px; background: var(--bg-inset); border: 1px solid var(--line); border-radius: 7px; padding: 0 10px; transition: border-color 0.12s ease; }
+.field-input:focus-within { border-color: var(--gold); }
+.field-input.field-invalid { border-color: var(--crimson); }
+.field-icon { width: 15px; height: 15px; color: var(--ink-faint); flex-shrink: 0; }
+.field-input input { flex: 1; min-width: 0; border: none; background: transparent; color: var(--ink); font-family: var(--font-sans); font-size: 13px; padding: 10px 0; outline: none; }
+.field-input input::placeholder { color: var(--ink-faint); }
+.field-error { margin: -6px 0 0; font-size: 11px; color: var(--crimson); display: flex; align-items: center; gap: 5px; }
+.field-error .icon { width: 12px; height: 12px; flex-shrink: 0; }
+.auth-submit { width: 100%; margin-top: 4px; }
+.auth-howto-link { display: block; margin-top: 18px; font-size: 11.5px; color: var(--ink-faint); text-decoration: underline; text-underline-offset: 2px; }
+.auth-howto-link:hover { color: var(--ink-dim); }
+
+/* ==================================================== 3.3 deck slot list */
+
+.deck-slots { display: flex; gap: 18px; flex-wrap: wrap; }
+.deck-slot-tile { width: 236px; min-height: 172px; background: var(--bg-raised); border: 1px solid var(--line); border-radius: 12px; padding: 16px 16px 14px; position: relative; display: flex; flex-direction: column; box-shadow: 0 10px 22px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(242, 233, 216, 0.05); }
+.deck-slot-tile .slot-name { font-family: var(--font-serif); font-weight: bold; font-size: 15px; margin: 0 0 4px; padding-right: 64px; }
+.deck-slot-tile .slot-count { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 12px; color: var(--ink-dim); margin-bottom: auto; }
+.badge-incomplete { position: absolute; top: 14px; right: 14px; background: var(--crimson); color: var(--ink); font-size: 9.5px; font-weight: 700; letter-spacing: 0.03em; padding: 3px 8px; border-radius: 10px; box-shadow: 0 3px 8px rgba(194, 59, 76, 0.4); }
+.slot-actions { display: flex; gap: 8px; margin-top: 14px; }
+.slot-actions .btn { flex: 1; padding: 8px 0; font-size: 12px; }
+.deck-slot-tile.empty { align-items: center; justify-content: center; text-align: center; border-style: dashed; border-color: var(--line); background: var(--bg-inset); cursor: pointer; color: var(--ink-faint); gap: 6px; box-shadow: none; }
+.deck-slot-tile.empty:hover { border-color: var(--gold); color: var(--ink-dim); }
+.deck-slot-tile.empty .plus { font-size: 22px; font-family: var(--font-serif); color: var(--gold); }
+
+/* ======================================================== 3.3 deck editor */
+
+.editor-shell { background: var(--bg-raised); border: 1px solid var(--line); border-radius: 14px; padding: 20px; }
+.editor-topbar { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; flex-wrap: wrap; }
+.editor-topbar input.deck-name-input { flex: 1; min-width: 160px; background: var(--bg-inset); border: 1px solid var(--line); border-radius: 7px; padding: 9px 12px; color: var(--ink); font-family: var(--font-serif); font-size: 14px; }
+.deck-counter { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 13px; color: var(--ink-dim); background: var(--bg-inset); border: 1px solid var(--line); border-radius: 7px; padding: 8px 12px; }
+.deck-counter.invalid { color: var(--crimson); border-color: rgba(194, 59, 76, 0.5); }
+.editor-topbar .btn-done { margin-left: auto; }
+.editor-hint { font-size: 11.5px; color: var(--crimson); margin: -8px 0 16px; }
+
+.editor-layout { display: flex; flex-direction: column; gap: 22px; }
+.pool-section-label, .decklist-section-label { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-faint); margin: 0 0 10px; display: flex; align-items: center; gap: 8px; }
+.pool-section-label::after, .decklist-section-label::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+
+/* Pool = browsing area, reuses the real 132x184 card component at a slightly
+   reduced scale so a full 14-card grid fits without introducing a second card
+   visual language. */
+.pool-grid { display: grid; grid-template-columns: repeat(auto-fill, 108px); gap: 16px 12px; }
+.pool-card-wrap { position: relative; width: 108px; height: 151px; }
+.pool-card-wrap .card { position: absolute; top: 0; left: 0; transform: scale(0.8182); transform-origin: top left; cursor: pointer; }
+.pool-card-wrap .card:hover { transform: scale(0.8182) translateY(-6px); }
+.pool-card-wrap.maxed .card { opacity: 0.45; cursor: default; }
+.pool-card-wrap.maxed .card:hover { transform: scale(0.8182); }
+/* Positioned at the top-right corner (mirroring the card's own top-left cost
+   badge) rather than bottom-right, so it never collides with longer effect
+   text on Power cards regardless of how many lines it wraps to. */
+.pool-count-badge { position: absolute; top: -7px; right: -7px; min-width: 26px; text-align: center; background: var(--bg-inset); border: 1px solid var(--line); border-radius: 10px; padding: 2px 6px; font-family: var(--font-mono); font-size: 10px; color: var(--ink-dim); z-index: 3; box-shadow: 0 2px 5px rgba(0,0,0,0.4); }
+.pool-count-badge.full { background: var(--card-type-color, var(--gold)); color: var(--bg); border-color: transparent; font-weight: bold; }
+
+/* Deck list = the "result" area — deliberately a compact list, not a card
+   grid, so pool vs. deck read as two different silhouettes at a glance. */
+.deck-list { background: var(--bg-inset); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.deck-list-row { display: flex; align-items: center; gap: 10px; padding: 8px 12px; font-size: 12.5px; }
+.deck-list-row:nth-child(even) { background: rgba(242, 233, 216, 0.03); }
+.deck-list-row + .deck-list-row { border-top: 1px solid var(--line); }
+.row-cost { width: 20px; height: 20px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 10.5px; font-weight: bold; color: var(--bg); background: var(--card-type-color, var(--ink-faint)); }
+.row-name { flex: 1; font-family: var(--font-serif); color: var(--ink); }
+.row-qty { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ink-dim); width: 26px; text-align: center; }
+.row-remove { width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--line); background: var(--bg-raised); color: var(--ink-dim); font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center; padding: 0; }
+.row-remove:hover { border-color: var(--crimson); color: var(--crimson); }
+
+@media (min-width: 900px) {
+  .editor-layout { flex-direction: row; align-items: flex-start; }
+  .pool-section { flex: 1.4; }
+  .decklist-section { flex: 1; position: sticky; top: 20px; }
+}
+
+/* ==================================================== 4.10 lobby / rooms */
+
+.lobby-panel { max-width: 420px; text-align: center; }
+.lobby-code-box { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 14px 0 18px; }
+.lobby-code { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 30px; letter-spacing: 0.22em; color: var(--gold); background: var(--bg-inset); border: 1px solid var(--line); border-radius: 10px; padding: 14px 20px; box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.5); }
+.btn-copy { width: 38px; height: 38px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg-inset); color: var(--ink-dim); display: flex; align-items: center; justify-content: center; flex-shrink: 0; padding: 0; }
+.btn-copy:hover { border-color: var(--gold); color: var(--ink); }
+.btn-copy .icon { width: 16px; height: 16px; }
+.btn-copy.copied { border-color: var(--gold); color: var(--gold); }
+.lobby-waiting { display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--ink-dim); font-size: 13px; margin-bottom: 6px; }
+.spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--gold); animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+.lobby-join-form { display: flex; gap: 8px; margin-top: 6px; }
+.lobby-join-form input { flex: 1; text-align: center; letter-spacing: 0.18em; text-transform: uppercase; background: var(--bg-inset); border: 1px solid var(--line); border-radius: 7px; color: var(--ink); font-family: var(--font-mono); font-size: 16px; padding: 10px 0; }
+.lobby-inline-error { font-size: 11.5px; color: var(--crimson); margin-top: 8px; }
+.opponent-found { display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--ink); font-family: var(--font-serif); font-size: 14px; margin-top: 10px; }
+.opponent-found .icon { width: 14px; height: 14px; color: var(--gold); }
+
+.disconnect-overlay { position: relative; min-height: 220px; border-radius: 14px; overflow: hidden; background: radial-gradient(ellipse at 50% -10%, #241a2c 0%, var(--bg) 55%); border: 1px solid var(--line); }
+.disconnect-board-mock { position: absolute; inset: 0; opacity: 0.35; display: flex; align-items: center; justify-content: center; color: var(--ink-faint); font-size: 12px; font-family: var(--font-mono); text-align: center; padding: 20px; }
+.disconnect-banner { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(90%, 380px); background: rgba(21, 15, 26, 0.92); backdrop-filter: blur(2px); border: 1px solid var(--crimson); border-radius: 12px; padding: 20px 22px; text-align: center; box-shadow: 0 0 30px rgba(194, 59, 76, 0.3), 0 20px 40px rgba(0, 0, 0, 0.5); }
+.disconnect-banner .icon-warning { width: 26px; height: 26px; color: var(--crimson); margin-bottom: 8px; }
+.disconnect-banner h3 { font-family: var(--font-serif); font-size: 15px; margin: 0 0 6px; }
+.disconnect-banner p { font-size: 12.5px; color: var(--ink-dim); margin: 0 0 4px; }
+.disconnect-timer { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 22px; color: var(--crimson); margin: 8px 0 14px; }
+.btn-claim-forfeit { width: 100%; }
+.btn-claim-forfeit:disabled { opacity: 0.35; cursor: default; }
+.claim-hint { font-size: 10.5px; color: var(--ink-faint); margin-top: 8px; }
+
+/* Mirrors the ID-scoped #screen-battle background rule in css/style.css
+   (radial gradient + hidden overflow) as a reusable class, since this review
+   file needs two side-by-side battle-board instances and IDs must be unique
+   per document. */
+.screen-battle-mock { position: relative; overflow: hidden; background: radial-gradient(ellipse at 50% -10%, #241a2c 0%, var(--bg) 55%); }
+
+/* ============================================== 4.9 battle: opponent panel
+   Replaces the old scripted-enemy portrait + intent badge (art-direction.md
+   §5-6) entirely — no portrait/character art here on purpose (see report). */
+
+.opponent-panel { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 16px 16px 10px; position: relative; z-index: 1; }
+.opponent-identity { display: flex; align-items: center; gap: 8px; }
+.opponent-name { font-family: var(--font-serif); font-size: 15px; letter-spacing: 0.02em; color: var(--ink); }
+.opponent-meta-row { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; justify-content: center; margin-top: 6px; }
+.opponent-meta-row .vital { font-size: 13px; }
+.opponent-meta-row .pile-counters { margin-left: 0; }
+
+.hand-count-badge { display: flex; align-items: center; gap: 6px; }
+.hand-count-stack { position: relative; width: 30px; height: 22px; flex-shrink: 0; }
+.hand-count-stack .card-back-icon { position: absolute; width: 18px; height: 25px; top: -4px; display: block; }
+.hand-count-stack .card-back-icon:nth-child(1) { left: 0; transform: rotate(-8deg); opacity: 0.8; }
+.hand-count-stack .card-back-icon:nth-child(2) { left: 5px; transform: rotate(3deg); opacity: 0.92; }
+.hand-count-stack .card-back-icon:nth-child(3) { left: 10px; }
+.hand-count-text { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 13px; color: var(--ink-dim); }
+
+.turn-timer { display: flex; align-items: center; gap: 7px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 15px; color: var(--ink); background: var(--bg-inset); border: 1px solid var(--line); border-radius: 8px; padding: 5px 10px; }
+.turn-timer .timer-label { font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); }
+/* Urgent state (<=10s, spec §7.3): faster/tighter pulse than the ambient
+   3.6s portrait-pulse (art-direction.md §7) — same technique (dual
+   box-shadow via keyframes, reduced-motion guard) but a shorter period,
+   since this needs to read as "hurry up", not "idle breathing". Flagged in
+   the report as a judgment call, not a literal reuse of the 3.6s timing. */
+.turn-timer.urgent { color: var(--crimson); border-color: rgba(194, 59, 76, 0.5); animation: timer-pulse 1s ease-in-out infinite; }
+@keyframes timer-pulse {
+  0%, 100% { box-shadow: 0 0 0 rgba(194, 59, 76, 0); }
+  50% { box-shadow: 0 0 14px rgba(194, 59, 76, 0.55); }
+}
+@media (prefers-reduced-motion: reduce) { .turn-timer.urgent { animation: none; } }
+
+.mini-hp-bar { width: 220px; height: 14px; }
+
+/* Turn status label (spec §7.2: "내 턴이 아닐 때: 화면 상단에 '상대 턴' 표시").
+   Only one turn-timer instance is ever shown at a time (there is exactly one
+   shared countdown, for whichever player is active, per spec §7.3) — it
+   lives next to the acting side's own controls: opponent-meta-row during
+   their turn, next to the End Turn button during yours. This label is the
+   passive-state cue that doesn't depend on the timer's position. */
+.turn-status { text-align: center; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-faint); padding: 8px 0 0; position: relative; z-index: 1; }
+
+/* ==================================================== 5.2 match history */
+
+.history-header { display: flex; align-items: baseline; gap: 26px; justify-content: center; margin-bottom: 26px; }
+.history-stat { text-align: center; }
+.history-stat .stat-value { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 32px; font-weight: bold; }
+.history-stat.wins .stat-value { color: var(--gold); }
+.history-stat.losses .stat-value { color: var(--crimson); }
+.history-stat .stat-label { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); margin-top: 2px; }
+.history-divider { width: 1px; height: 36px; background: var(--line); align-self: center; }
+
+.history-list { display: flex; flex-direction: column; background: var(--bg-raised); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.history-row { display: flex; align-items: center; gap: 14px; padding: 12px 16px; }
+.history-row + .history-row { border-top: 1px solid var(--line); }
+.history-opponent { flex: 1; font-family: var(--font-serif); font-size: 13.5px; color: var(--ink); }
+.history-date { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 11.5px; color: var(--ink-faint); width: 88px; text-align: right; }
+.result-chip { font-size: 11px; font-weight: 700; letter-spacing: 0.02em; padding: 4px 10px; border-radius: 10px; white-space: nowrap; }
+.result-chip.win { background: rgba(212, 175, 55, 0.16); color: var(--gold); border: 1px solid rgba(212, 175, 55, 0.4); }
+.result-chip.loss { background: rgba(194, 59, 76, 0.14); color: var(--crimson); border: 1px solid rgba(194, 59, 76, 0.4); }
+.result-chip .forfeit-tag { font-weight: 400; color: var(--ink-faint); margin-left: 3px; }
+.history-empty { text-align: center; padding: 40px 20px; color: var(--ink-faint); font-size: 13px; }

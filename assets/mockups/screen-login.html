@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<title>ARCANE LEDGER — 로그인/회원가입 목업 (plan 4.2, spec §4.1-§4.2)</title>
+<link rel="stylesheet" href="../../css/style.css" />
+<link rel="stylesheet" href="pvp-components.css" />
+</head>
+<body>
+
+<svg style="display:none" aria-hidden="true">
+  <symbol id="icon-mail" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3" y="5" width="18" height="14" rx="2" />
+    <path d="M4 6.5L12 13L20 6.5" />
+  </symbol>
+  <symbol id="icon-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="5" y="11" width="14" height="10" rx="2" />
+    <path d="M8 11V7.5C8 5 9.8 3 12 3C14.2 3 16 5 16 7.5V11" />
+  </symbol>
+  <symbol id="icon-warning" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 3L22 20H2L12 3Z" />
+    <line x1="12" y1="9.5" x2="12" y2="14.5" />
+    <circle cx="12" cy="17.3" r="0.9" fill="currentColor" stroke="none" />
+  </symbol>
+</svg>
+
+<header class="topbar">
+  <span class="brand">ARCANE LEDGER</span>
+</header>
+
+<div class="mockup-page">
+
+  <div>
+    <div class="mockup-caption">state: 로그인 (기본)</div>
+    <div class="mockup-row">
+      <div class="overlay-panel auth-panel">
+        <h1 style="color:var(--gold); font-family:var(--font-serif); font-size:24px; margin:0 0 4px;">ARCANE LEDGER</h1>
+        <p class="subtitle">오컬트 장부 온라인 1:1 대전</p>
+        <div class="auth-tabs">
+          <button class="auth-tab active">로그인</button>
+          <button class="auth-tab">회원가입</button>
+        </div>
+        <form class="auth-form">
+          <div class="field">
+            <span class="field-label">이메일</span>
+            <div class="field-input">
+              <svg class="icon field-icon"><use href="#icon-mail"></use></svg>
+              <input type="email" placeholder="you@example.com" />
+            </div>
+          </div>
+          <div class="field">
+            <span class="field-label">비밀번호</span>
+            <div class="field-input">
+              <svg class="icon field-icon"><use href="#icon-lock"></use></svg>
+              <input type="password" placeholder="8자 이상" />
+            </div>
+          </div>
+          <button type="button" class="btn btn-primary auth-submit">로그인</button>
+        </form>
+        <a class="auth-howto-link" href="#">플레이 방법 보기</a>
+      </div>
+
+      <div class="overlay-panel auth-panel">
+        <h1 style="color:var(--gold); font-family:var(--font-serif); font-size:24px; margin:0 0 4px;">ARCANE LEDGER</h1>
+        <p class="subtitle">오컬트 장부 온라인 1:1 대전</p>
+        <div class="auth-tabs">
+          <button class="auth-tab active">로그인</button>
+          <button class="auth-tab">회원가입</button>
+        </div>
+        <form class="auth-form">
+          <div class="field">
+            <span class="field-label">이메일</span>
+            <div class="field-input field-invalid">
+              <svg class="icon field-icon"><use href="#icon-mail"></use></svg>
+              <input type="email" value="user@example.com" />
+            </div>
+          </div>
+          <div class="field">
+            <span class="field-label">비밀번호</span>
+            <div class="field-input field-invalid">
+              <svg class="icon field-icon"><use href="#icon-lock"></use></svg>
+              <input type="password" value="wrongpass" />
+            </div>
+          </div>
+          <p class="field-error"><svg class="icon"><use href="#icon-warning"></use></svg>이메일 또는 비밀번호가 올바르지 않습니다</p>
+          <button type="button" class="btn btn-primary auth-submit">로그인</button>
+        </form>
+        <a class="auth-howto-link" href="#">플레이 방법 보기</a>
+      </div>
+    </div>
+    <p class="mockup-note">spec §4.2: 실패 메시지는 이메일 부재/비밀번호 오류를 구분하지 않고 하나로 통일. 두 필드 모두 <code>.field-invalid</code>로 동시에 표시해 "어느 쪽이 틀렸는지"를 시각적으로도 암시하지 않는다.</p>
+  </div>
+
+  <div>
+    <div class="mockup-caption">state: 회원가입 (기본 / 검증 실패 예시)</div>
+    <div class="mockup-row">
+      <div class="overlay-panel auth-panel">
+        <h1 style="color:var(--gold); font-family:var(--font-serif); font-size:24px; margin:0 0 4px;">ARCANE LEDGER</h1>
+        <p class="subtitle">오컬트 장부 온라인 1:1 대전</p>
+        <div class="auth-tabs">
+          <button class="auth-tab">로그인</button>
+          <button class="auth-tab active">회원가입</button>
+        </div>
+        <form class="auth-form">
+          <div class="field">
+            <span class="field-label">이메일</span>
+            <div class="field-input">
+              <svg class="icon field-icon"><use href="#icon-mail"></use></svg>
+              <input type="email" placeholder="you@example.com" />
+            </div>
+          </div>
+          <div class="field">
+            <span class="field-label">비밀번호</span>
+            <div class="field-input">
+              <svg class="icon field-icon"><use href="#icon-lock"></use></svg>
+              <input type="password" placeholder="8자 이상" />
+            </div>
+          </div>
+          <div class="field">
+            <span class="field-label">비밀번호 확인</span>
+            <div class="field-input">
+              <svg class="icon field-icon"><use href="#icon-lock"></use></svg>
+              <input type="password" placeholder="다시 입력" />
+            </div>
+          </div>
+          <div class="field">
+            <span class="field-label">표시 이름 (2~16자)</span>
+            <div class="field-input">
+              <input type="text" placeholder="상대에게 보이는 이름" />
+            </div>
+          </div>
+          <button type="button" class="btn btn-primary auth-submit">회원가입</button>
+        </form>
+        <a class="auth-howto-link" href="#">플레이 방법 보기</a>
+      </div>
+
+      <div class="overlay-panel auth-panel">
+        <h1 style="color:var(--gold); font-family:var(--font-serif); font-size:24px; margin:0 0 4px;">ARCANE LEDGER</h1>
+        <p class="subtitle">오컬트 장부 온라인 1:1 대전</p>
+        <div class="auth-tabs">
+          <button class="auth-tab">로그인</button>
+          <button class="auth-tab active">회원가입</button>
+        </div>
+        <form class="auth-form">
+          <div class="field">
+            <span class="field-label">이메일</span>
+            <div class="field-input field-invalid">
+              <svg class="icon field-icon"><use href="#icon-mail"></use></svg>
+              <input type="email" value="taken@example.com" />
+            </div>
+            <p class="field-error"><svg class="icon"><use href="#icon-warning"></use></svg>이미 사용 중인 이메일입니다</p>
+          </div>
+          <div class="field">
+            <span class="field-label">비밀번호</span>
+            <div class="field-input field-invalid">
+              <svg class="icon field-icon"><use href="#icon-lock"></use></svg>
+              <input type="password" value="1234" />
+            </div>
+            <p class="field-error"><svg class="icon"><use href="#icon-warning"></use></svg>비밀번호는 8자 이상이어야 합니다</p>
+          </div>
+          <div class="field">
+            <span class="field-label">비밀번호 확인</span>
+            <div class="field-input field-invalid">
+              <svg class="icon field-icon"><use href="#icon-lock"></use></svg>
+              <input type="password" value="12345" />
+            </div>
+            <p class="field-error"><svg class="icon"><use href="#icon-warning"></use></svg>비밀번호가 일치하지 않습니다</p>
+          </div>
+          <div class="field">
+            <span class="field-label">표시 이름 (2~16자)</span>
+            <div class="field-input field-invalid">
+              <input type="text" value="아주아주아주아주아주긴이름입니다" />
+            </div>
+            <p class="field-error"><svg class="icon"><use href="#icon-warning"></use></svg>표시 이름은 2~16자여야 합니다</p>
+          </div>
+          <button type="button" class="btn btn-primary auth-submit">회원가입</button>
+        </form>
+        <a class="auth-howto-link" href="#">플레이 방법 보기</a>
+      </div>
+    </div>
+    <p class="mockup-note">spec §4.1: 실패한 필드 아래에만 인라인 에러 표시, 입력값은 유지. 각 필드가 독립적으로 <code>.field-invalid</code> 상태를 가질 수 있음 (한 번에 여러 필드 에러 동시 표시 가능).</p>
+  </div>
+
+</div>
+
+</body>
+</html>

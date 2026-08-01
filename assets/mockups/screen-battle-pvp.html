@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<title>ARCANE LEDGER — PvP 배틀 화면 목업 (plan 4.9, spec §7.2, §7.3, §9)</title>
+<link rel="stylesheet" href="../../css/style.css" />
+<link rel="stylesheet" href="pvp-components.css" />
+</head>
+<body>
+
+<svg style="display:none" aria-hidden="true">
+  <symbol id="icon-sword" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M14.5 3.5L20.5 9.5L11 19L7 20L8 16L17.5 6.5" />
+    <path d="M4 20L7.5 16.5" />
+    <path d="M13 5L19 11" />
+  </symbol>
+  <symbol id="icon-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 3L19 6V11C19 15.5 16 19 12 21C8 19 5 15.5 5 11V6L12 3Z" />
+  </symbol>
+  <symbol id="icon-mana" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 3C12 3 6 11 6 15.5C6 19 8.7 21 12 21C15.3 21 18 19 18 15.5C18 11 12 3 12 3Z" />
+  </symbol>
+  <symbol id="icon-heart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 20C12 20 4 14.5 4 9C4 6.2 6.2 4 9 4C10.5 4 11.5 4.8 12 5.5C12.5 4.8 13.5 4 15 4C17.8 4 20 6.2 20 9C20 14.5 12 20 12 20Z" />
+  </symbol>
+
+  <!-- card-back: see assets/icons.svg for the source of truth definition -->
+  <symbol id="card-back" viewBox="0 0 132 184">
+    <defs>
+      <linearGradient id="cardback-bg" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#241a2c" />
+        <stop offset="1" stop-color="#1e1624" />
+      </linearGradient>
+      <radialGradient id="cardback-glow" cx="50%" cy="50%" r="50%">
+        <stop offset="0" stop-color="#3a2c46" />
+        <stop offset="1" stop-color="#1e1624" stop-opacity="0" />
+      </radialGradient>
+    </defs>
+    <rect x="0.75" y="0.75" width="130.5" height="182.5" rx="8" fill="url(#cardback-bg)" stroke="#d4af37" stroke-width="1.5" />
+    <rect x="8" y="8" width="116" height="168" rx="4" fill="none" stroke="rgba(242,233,216,0.16)" stroke-width="1" />
+    <circle cx="66" cy="92" r="36" fill="url(#cardback-glow)" />
+    <g stroke="#d4af37" stroke-opacity="0.28" stroke-width="1">
+      <line x1="66" y1="30" x2="66" y2="50" />
+      <line x1="66" y1="134" x2="66" y2="154" />
+      <line x1="20" y1="92" x2="40" y2="92" />
+      <line x1="92" y1="92" x2="112" y2="92" />
+      <line x1="34" y1="52" x2="47" y2="65" />
+      <line x1="98" y1="52" x2="85" y2="65" />
+      <line x1="34" y1="132" x2="47" y2="119" />
+      <line x1="98" y1="132" x2="85" y2="119" />
+    </g>
+    <g stroke="#d4af37" stroke-width="1.4" fill="none">
+      <rect x="16" y="20" width="9" height="9" transform="rotate(45 20.5 24.5)" />
+      <rect x="107" y="20" width="9" height="9" transform="rotate(45 111.5 24.5)" />
+      <rect x="16" y="155" width="9" height="9" transform="rotate(45 20.5 159.5)" />
+      <rect x="107" y="155" width="9" height="9" transform="rotate(45 111.5 159.5)" />
+    </g>
+    <path transform="translate(44.4,70.4) scale(1.8)" fill="#d4af37" d="M12 3C12 3 6 11 6 15.5C6 19 8.7 21 12 21C15.3 21 18 19 18 15.5C18 11 12 3 12 3Z" />
+  </symbol>
+</svg>
+
+<header class="topbar">
+  <span class="brand">ARCANE LEDGER</span>
+</header>
+
+<div class="mockup-page">
+
+  <div>
+    <div class="mockup-caption">screen: 배틀 화면 — 상대(=실제 플레이어) 패널이 기존 적 포트레이트를 대체 (spec §7.2, plan 4.9)</div>
+    <p class="mockup-note" style="margin-bottom:16px;">
+      타이머는 활성 플레이어 1명당 하나뿐인 공유 카운트다운(spec §7.3) — 양쪽에 동시에 서로 다른 숫자가 떠
+      있는 것이 아니므로, 아래 두 상태(내 턴 / 상대 턴)로 나눠 "타이머가 항상 활성 플레이어 쪽 컨트롤
+      옆(마나 게이지 근처, End Turn 버튼 옆)에 붙어 다닌다"는 동작을 보여준다.
+    </p>
+    <div class="mockup-row">
+
+      <div style="flex:1; min-width:520px;">
+        <p class="mockup-note" style="margin-bottom:10px;">state: 내 턴 — 타이머가 End Turn 버튼 옆에 표시, 손패 조작 가능</p>
+        <div class="screen screen-battle-mock" style="min-height:600px; border:1px solid var(--line); border-radius:14px;">
+          <div class="battle-grain"></div>
+
+          <div class="opponent-panel">
+            <div class="opponent-identity">
+              <span class="opponent-name">야공이</span>
+            </div>
+            <div class="hp-bar-track enemy-hp mini-hp-bar">
+              <div class="hp-bar-fill" style="width:64%"></div>
+              <span class="hp-bar-text">32/50</span>
+            </div>
+            <div class="opponent-meta-row">
+              <div class="vital"><svg class="icon icon-block"><use href="#icon-shield"></use></svg><span>8</span></div>
+              <div class="mana-block">
+                <span class="mana-caption">Mana</span>
+                <div class="mana-gauge">
+                  <div class="mana-drop filled"><svg viewBox="0 0 24 24"><use href="#icon-mana"></use></svg></div>
+                  <div class="mana-drop filled"><svg viewBox="0 0 24 24"><use href="#icon-mana"></use></svg></div>
+                  <div class="mana-drop empty"><svg viewBox="0 0 24 24"><use href="#icon-mana"></use></svg></div>
+                </div>
+              </div>
+              <div class="hand-count-badge">
+                <div class="hand-count-stack">
+                  <svg class="card-back-icon"><use href="#card-back"></use></svg>
+                  <svg class="card-back-icon"><use href="#card-back"></use></svg>
+                  <svg class="card-back-icon"><use href="#card-back"></use></svg>
+                </div>
+                <span class="hand-count-text">6장</span>
+              </div>
+              <div class="pile-counters">
+                <div class="pile-badge" title="상대의 뽑을 카드"><span class="pile-label">Deck</span><span>21</span></div>
+                <div class="pile-badge" title="상대의 버린 카드"><span class="pile-label">Discard</span><span>5</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="dmg-popup-layer"></div>
+
+          <div class="player-bar">
+            <div class="player-vitals">
+              <div class="vital"><svg class="icon icon-heart"><use href="#icon-heart"></use></svg><span>44/50</span></div>
+              <div class="vital"><svg class="icon icon-block"><use href="#icon-shield"></use></svg><span>3</span></div>
+            </div>
+            <div class="mana-block">
+              <span class="mana-caption">Mana</span>
+              <div class="mana-gauge">
+                <div class="mana-drop filled"><svg viewBox="0 0 24 24"><use href="#icon-mana"></use></svg></div>
+                <div class="mana-drop empty"><svg viewBox="0 0 24 24"><use href="#icon-mana"></use></svg></div>
+                <div class="mana-drop empty"><svg viewBox="0 0 24 24"><use href="#icon-mana"></use></svg></div>
+              </div>
+            </div>
+            <div class="pile-counters">
+              <div class="pile-badge" title="뽑을 카드"><span class="pile-label">Deck</span><span>16</span></div>
+              <div class="pile-badge" title="버린 카드"><span class="pile-label">Discard</span><span>7</span></div>
+            </div>
+          </div>
+
+          <div class="hand-row">
+            <div class="hand-area">
+              <div class="card type-attack">
+                <div class="card-cost">1</div>
+                <div class="card-icon-chip"><svg><use href="#icon-sword"></use></svg></div>
+                <div class="card-name">Strike</div>
+                <hr class="card-divider" />
+                <div class="card-text">6 데미지</div>
+              </div>
+              <div class="card type-skill">
+                <div class="card-cost">1</div>
+                <div class="card-icon-chip"><svg><use href="#icon-shield"></use></svg></div>
+                <div class="card-name">Defend</div>
+                <hr class="card-divider" />
+                <div class="card-text">방어도 5 획득</div>
+              </div>
+            </div>
+            <div style="display:flex; flex-direction:column; align-items:center; gap:8px;">
+              <div class="turn-timer"><span class="timer-label">Your Turn</span><span>19</span></div>
+              <button class="btn btn-end-turn">End Turn</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="flex:1; min-width:520px;">
+        <p class="mockup-note" style="margin-bottom:10px;">state: 상대 턴 — "상대 턴" 표시 + 타이머가 상대 패널 쪽으로 이동(10초 이하 pulse), 내 손패는 선택 불가</p>
+        <div class="screen screen-battle-mock" style="min-height:600px; border:1px solid var(--line); border-radius:14px;">
+          <div class="battle-grain"></div>
+          <div class="turn-status">상대 턴</div>
+
+          <div class="opponent-panel">
+            <div class="opponent-identity">
+              <span class="opponent-name">야공이</span>
+            </div>
+            <div class="hp-bar-track enemy-hp mini-hp-bar">
+              <div class="hp-bar-fill" style="width:64%"></div>
+              <span class="hp-bar-text">32/50</span>
+            </div>
+            <div class="opponent-meta-row">
+              <div class="vital"><svg class="icon icon-block"><use href="#icon-shield"></use></svg><span>8</span></div>
+              <div class="mana-block">
+                <span class="mana-caption">Mana</span>
+                <div class="mana-gauge">
+                  <div class="mana-drop filled"><svg viewBox="0 0 24 24"><use href="#icon-mana"></use></svg></div>
+                  <div class="mana-drop filled"><svg viewBox="0 0 24 24"><use href="#icon-mana"></use></svg></div>
+                  <div class="mana-drop empty"><svg viewBox="0 0 24 24"><use href="#icon-mana"></use></svg></div>
+                </div>
+              </div>
+              <div class="hand-count-badge">
+                <div class="hand-count-stack">
+                  <svg class="card-back-icon"><use href="#card-back"></use></svg>
+                  <svg class="card-back-icon"><use href="#card-back"></use></svg>
+                  <svg class="card-back-icon"><use href="#card-back"></use></svg>
+                </div>
+                <span class="hand-count-text">6장</span>
+              </div>
+              <div class="pile-counters">
+                <div class="pile-badge" title="상대의 뽑을 카드"><span class="pile-label">Deck</span><span>21</span></div>
+                <div class="pile-badge" title="상대의 버린 카드"><span class="pile-label">Discard</span><span>5</span></div>
+              </div>
+              <div class="turn-timer urgent"><span class="timer-label">Opponent</span><span>08</span></div>
+            </div>
+          </div>
+
+          <div class="dmg-popup-layer"></div>
+
+          <div class="player-bar">
+            <div class="player-vitals">
+              <div class="vital"><svg class="icon icon-heart"><use href="#icon-heart"></use></svg><span>44/50</span></div>
+              <div class="vital"><svg class="icon icon-block"><use href="#icon-shield"></use></svg><span>3</span></div>
+            </div>
+            <div class="mana-block">
+              <span class="mana-caption">Mana</span>
+              <div class="mana-gauge">
+                <div class="mana-drop empty"><svg viewBox="0 0 24 24"><use href="#icon-mana"></use></svg></div>
+                <div class="mana-drop empty"><svg viewBox="0 0 24 24"><use href="#icon-mana"></use></svg></div>
+                <div class="mana-drop empty"><svg viewBox="0 0 24 24"><use href="#icon-mana"></use></svg></div>
+              </div>
+            </div>
+            <div class="pile-counters">
+              <div class="pile-badge" title="뽑을 카드"><span class="pile-label">Deck</span><span>16</span></div>
+              <div class="pile-badge" title="버린 카드"><span class="pile-label">Discard</span><span>7</span></div>
+            </div>
+          </div>
+
+          <div class="hand-row">
+            <div class="hand-area">
+              <div class="card type-attack unaffordable">
+                <div class="card-cost">1</div>
+                <div class="card-icon-chip"><svg><use href="#icon-sword"></use></svg></div>
+                <div class="card-name">Strike</div>
+                <hr class="card-divider" />
+                <div class="card-text">6 데미지</div>
+              </div>
+              <div class="card type-skill unaffordable">
+                <div class="card-cost">1</div>
+                <div class="card-icon-chip"><svg><use href="#icon-shield"></use></svg></div>
+                <div class="card-name">Defend</div>
+                <hr class="card-divider" />
+                <div class="card-text">방어도 5 획득</div>
+              </div>
+            </div>
+            <button class="btn btn-end-turn" disabled>End Turn</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <p class="mockup-note">
+      상대 영역: 기존 포트레이트/실루엣/의도 배지(art-direction.md §5-6)를 완전히 제거하고, 아래 플레이어 바와
+      대칭되는 구조(이름 → HP바 → 방어도/마나/손패매수/덱·버림더미)로 재구성했다 — "실제 상대는 몬스터가
+      아니라 사람"이라는 것을 시각적으로도 드러내려는 의도적 선택(§9 참고, CEO/기획 확인 필요 항목으로 보고서에
+      플래그). 손패는 카드 뒷면 3장을 겹쳐 쌓은 <code>.hand-count-stack</code> + 숫자로 "매수만" 표시.
+      HP바/마나 방울/덱·버림더미 배지는 전부 기존 컴포넌트 그대로 재사용(신규 CSS 없음). 내 턴이 아닐 때는
+      손패 카드에 기존 <code>.unaffordable</code> 스타일(45% 불투명, 클릭 무반응)을 재사용해 "선택 불가"를
+      표시하고 화면 상단에 "상대 턴" 라벨이 뜬다(spec §7.2) — 기존 <code>.card.unaffordable</code>은 마나
+      부족 표시 용도였지만 "지금 이 카드를 낼 수 없다"는 의미 자체는 동일하므로 새 클래스를 만들지 않고
+      재사용했다.
+    </p>
+  </div>
+
+  <div>
+    <div class="mockup-caption">state: 턴 타이머 — 평상시(&gt;10s) vs. 10초 이하 pulse (spec §7.3)</div>
+    <div class="mockup-row">
+      <div class="turn-timer"><span class="timer-label">Your Turn</span><span>14</span></div>
+      <div class="turn-timer urgent"><span class="timer-label">Your Turn</span><span>07</span></div>
+    </div>
+    <p class="mockup-note">
+      10초 이하부터 <code>--crimson</code>으로 전환 + <code>timer-pulse</code> 애니메이션(1초 주기, box-shadow
+      글로우 — art-direction.md §7의 <code>portrait-pulse</code>와 같은 "이중 box-shadow 키프레임 +
+      prefers-reduced-motion 가드" 기법을 재사용). 다만 주기는 그대로 3.6초를 쓰지 않고 1초로 더 급박하게
+      줄였다 — 3.6초는 "은은한 생동감"(적 포트레이트가 살아있는 느낌)을 위한 값이고, 이번 건 "시간이 촉박함"을
+      전달해야 하므로 같은 패턴을 다른 목적에 맞게 튜닝한 판단. 정확한 주기값은 확정 사항이 아니라 제안이므로
+      기획 컨펌 필요 항목으로 보고서에 플래그했다.
+    </p>
+  </div>
+
+  <div>
+    <div class="mockup-caption">asset: 카드 뒷면 (assets/icons.svg#card-back, 132×184 — 카드 프레임과 동일 크기)</div>
+    <div class="mockup-row" style="align-items:center;">
+      <svg style="width:132px; height:184px;"><use href="#card-back"></use></svg>
+      <p class="mockup-note" style="flex:1; min-width:260px;">
+        골드 테두리로 카드 앞면(테두리는 <code>--line</code>, 상단 타입 컬러 바만 유색)과 한눈에 구분되도록
+        했다. 중앙 마나 방울 모티프(<code>icon-mana</code> 확대) + 대각선 방사 장식 + 모서리 다이아몬드로
+        "장부/마나"라는 게임 정체성을 일러스트 없이 기하학적 요소로만 표현 — 기존 아이콘 세트 제약(§4)을
+        그대로 따름. 상대 손패 표시(spec §7.2)에 3장 겹쳐 쌓는 용도로 위 배틀 화면에서 사용.
+      </p>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

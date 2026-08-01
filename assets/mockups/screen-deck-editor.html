@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<title>ARCANE LEDGER — 덱 에디터 목업 (plan 3.3, spec §5.5)</title>
+<link rel="stylesheet" href="../../css/style.css" />
+<link rel="stylesheet" href="pvp-components.css" />
+</head>
+<body>
+
+<svg style="display:none" aria-hidden="true">
+  <symbol id="icon-sword" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M14.5 3.5L20.5 9.5L11 19L7 20L8 16L17.5 6.5" />
+    <path d="M4 20L7.5 16.5" />
+    <path d="M13 5L19 11" />
+  </symbol>
+  <symbol id="icon-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 3L19 6V11C19 15.5 16 19 12 21C8 19 5 15.5 5 11V6L12 3Z" />
+  </symbol>
+  <symbol id="icon-crown" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 18H20L21 8L16 12L12 6L8 12L3 8L4 18Z" />
+  </symbol>
+</svg>
+
+<header class="topbar">
+  <span class="brand">ARCANE LEDGER</span>
+</header>
+
+<div class="mockup-page">
+
+  <div>
+    <div class="mockup-caption">screen: 덱 에디터 — 슬롯 1 "스타터 덱" 편집 중 (spec §5.5, 예시 데이터 = §5.4 24장 스타터 구성)</div>
+
+    <div class="editor-shell">
+      <div class="editor-topbar">
+        <input class="deck-name-input" value="스타터 덱" />
+        <span class="deck-counter">덱: 24/30 (최소 20)</span>
+        <button class="btn btn-primary btn-done">완료</button>
+      </div>
+
+      <div class="editor-layout">
+
+        <div class="pool-section">
+          <div class="pool-section-label">카드 풀 · 14종 전부 오픈 (Attack → Skill → Power)</div>
+          <div class="pool-grid">
+
+            <!-- Attack (6): Strike, Heavy Slash, Twin Strike, Piercing Strike, Execute, Reckless Swing -->
+            <div class="pool-card-wrap">
+              <div class="card type-attack">
+                <div class="card-cost">1</div>
+                <div class="card-icon-chip"><svg><use href="#icon-sword"></use></svg></div>
+                <div class="card-name">Strike</div>
+                <hr class="card-divider" />
+                <div class="card-text">6 데미지</div>
+              </div>
+              <span class="pool-count-badge full">3/3</span>
+            </div>
+
+            <div class="pool-card-wrap">
+              <div class="card type-attack">
+                <div class="card-cost">2</div>
+                <div class="card-icon-chip"><svg><use href="#icon-sword"></use></svg></div>
+                <div class="card-name">Heavy Slash</div>
+                <hr class="card-divider" />
+                <div class="card-text">14 데미지</div>
+              </div>
+              <span class="pool-count-badge">2/3</span>
+            </div>
+
+            <div class="pool-card-wrap">
+              <div class="card type-attack">
+                <div class="card-cost">1</div>
+                <div class="card-icon-chip"><svg><use href="#icon-sword"></use></svg></div>
+                <div class="card-name">Twin Strike</div>
+                <hr class="card-divider" />
+                <div class="card-text">4 데미지 × 2회</div>
+              </div>
+              <span class="pool-count-badge">2/3</span>
+            </div>
+
+            <div class="pool-card-wrap">
+              <div class="card type-attack">
+                <div class="card-cost">2</div>
+                <div class="card-icon-chip"><svg><use href="#icon-sword"></use></svg></div>
+                <div class="card-name">Piercing Strike</div>
+                <hr class="card-divider" />
+                <div class="card-text">10 데미지, 적 방어도 무시</div>
+              </div>
+              <span class="pool-count-badge">2/3</span>
+            </div>
+
+            <div class="pool-card-wrap">
+              <div class="card type-attack">
+                <div class="card-cost">2</div>
+                <div class="card-icon-chip"><svg><use href="#icon-sword"></use></svg></div>
+                <div class="card-name">Execute</div>
+                <hr class="card-divider" />
+                <div class="card-text">10 데미지, 적 HP 30% 이하면 +10 추가</div>
+              </div>
+              <span class="pool-count-badge">1/3</span>
+            </div>
+
+            <div class="pool-card-wrap">
+              <div class="card type-attack">
+                <div class="card-cost">1</div>
+                <div class="card-icon-chip"><svg><use href="#icon-sword"></use></svg></div>
+                <div class="card-name">Reckless Swing</div>
+                <hr class="card-divider" />
+                <div class="card-text">12 데미지, 자신도 3 데미지 받음</div>
+              </div>
+              <span class="pool-count-badge">1/3</span>
+            </div>
+
+            <!-- Skill (5): Defend, Quick Guard, Second Wind, Adrenaline, Fortify -->
+            <div class="pool-card-wrap">
+              <div class="card type-skill">
+                <div class="card-cost">1</div>
+                <div class="card-icon-chip"><svg><use href="#icon-shield"></use></svg></div>
+                <div class="card-name">Defend</div>
+                <hr class="card-divider" />
+                <div class="card-text">방어도 5 획득</div>
+              </div>
+              <span class="pool-count-badge full">3/3</span>
+            </div>
+
+            <div class="pool-card-wrap">
+              <div class="card type-skill">
+                <div class="card-cost">0</div>
+                <div class="card-icon-chip"><svg><use href="#icon-shield"></use></svg></div>
+                <div class="card-name">Quick Guard</div>
+                <hr class="card-divider" />
+                <div class="card-text">방어도 4 획득, 카드 1장 드로우</div>
+              </div>
+              <span class="pool-count-badge">2/3</span>
+            </div>
+
+            <div class="pool-card-wrap">
+              <div class="card type-skill">
+                <div class="card-cost">1</div>
+                <div class="card-icon-chip"><svg><use href="#icon-shield"></use></svg></div>
+                <div class="card-name">Second Wind</div>
+                <hr class="card-divider" />
+                <div class="card-text">HP 6 회복</div>
+              </div>
+              <span class="pool-count-badge">2/3</span>
+            </div>
+
+            <div class="pool-card-wrap">
+              <div class="card type-skill">
+                <div class="card-cost">1</div>
+                <div class="card-icon-chip"><svg><use href="#icon-shield"></use></svg></div>
+                <div class="card-name">Adrenaline</div>
+                <hr class="card-divider" />
+                <div class="card-text">카드 2장 드로우</div>
+              </div>
+              <span class="pool-count-badge">1/3</span>
+            </div>
+
+            <div class="pool-card-wrap">
+              <div class="card type-skill">
+                <div class="card-cost">2</div>
+                <div class="card-icon-chip"><svg><use href="#icon-shield"></use></svg></div>
+                <div class="card-name">Fortify</div>
+                <hr class="card-divider" />
+                <div class="card-text">방어도 10 획득</div>
+              </div>
+              <span class="pool-count-badge">2/3</span>
+            </div>
+
+            <!-- Power (3): Iron Skin, Bloodlust, Hoarder -->
+            <div class="pool-card-wrap">
+              <div class="card type-power">
+                <div class="card-cost">1</div>
+                <div class="card-icon-chip"><svg><use href="#icon-crown"></use></svg></div>
+                <div class="card-name">Iron Skin</div>
+                <hr class="card-divider" />
+                <div class="card-text">이후 Skill 카드 플레이 시마다 방어도 +2 (영구)</div>
+              </div>
+              <span class="pool-count-badge">1/3</span>
+            </div>
+
+            <div class="pool-card-wrap">
+              <div class="card type-power">
+                <div class="card-cost">1</div>
+                <div class="card-icon-chip"><svg><use href="#icon-crown"></use></svg></div>
+                <div class="card-name">Bloodlust</div>
+                <hr class="card-divider" />
+                <div class="card-text">이후 Attack 카드 플레이 시마다 데미지 +2 (영구)</div>
+              </div>
+              <span class="pool-count-badge">1/3</span>
+            </div>
+
+            <div class="pool-card-wrap maxed">
+              <div class="card type-power">
+                <div class="card-cost">2</div>
+                <div class="card-icon-chip"><svg><use href="#icon-crown"></use></svg></div>
+                <div class="card-name">Hoarder</div>
+                <hr class="card-divider" />
+                <div class="card-text">매 턴 시작 시 카드 1장 추가 드로우 (영구)</div>
+              </div>
+              <span class="pool-count-badge full">1/3</span>
+            </div>
+
+          </div>
+        </div>
+
+        <div class="decklist-section">
+          <div class="decklist-section-label">이 덱 (24장)</div>
+          <div class="deck-list">
+            <div class="deck-list-row"><span class="row-cost" style="--card-type-color:var(--crimson)">1</span><span class="row-name">Strike</span><span class="row-qty">×3</span><button class="row-remove">&minus;</button></div>
+            <div class="deck-list-row"><span class="row-cost" style="--card-type-color:var(--crimson)">2</span><span class="row-name">Heavy Slash</span><span class="row-qty">×2</span><button class="row-remove">&minus;</button></div>
+            <div class="deck-list-row"><span class="row-cost" style="--card-type-color:var(--crimson)">1</span><span class="row-name">Twin Strike</span><span class="row-qty">×2</span><button class="row-remove">&minus;</button></div>
+            <div class="deck-list-row"><span class="row-cost" style="--card-type-color:var(--crimson)">2</span><span class="row-name">Piercing Strike</span><span class="row-qty">×2</span><button class="row-remove">&minus;</button></div>
+            <div class="deck-list-row"><span class="row-cost" style="--card-type-color:var(--crimson)">2</span><span class="row-name">Execute</span><span class="row-qty">×1</span><button class="row-remove">&minus;</button></div>
+            <div class="deck-list-row"><span class="row-cost" style="--card-type-color:var(--crimson)">1</span><span class="row-name">Reckless Swing</span><span class="row-qty">×1</span><button class="row-remove">&minus;</button></div>
+            <div class="deck-list-row"><span class="row-cost" style="--card-type-color:var(--steel)">1</span><span class="row-name">Defend</span><span class="row-qty">×3</span><button class="row-remove">&minus;</button></div>
+            <div class="deck-list-row"><span class="row-cost" style="--card-type-color:var(--steel)">0</span><span class="row-name">Quick Guard</span><span class="row-qty">×2</span><button class="row-remove">&minus;</button></div>
+            <div class="deck-list-row"><span class="row-cost" style="--card-type-color:var(--steel)">1</span><span class="row-name">Second Wind</span><span class="row-qty">×2</span><button class="row-remove">&minus;</button></div>
+            <div class="deck-list-row"><span class="row-cost" style="--card-type-color:var(--steel)">1</span><span class="row-name">Adrenaline</span><span class="row-qty">×1</span><button class="row-remove">&minus;</button></div>
+            <div class="deck-list-row"><span class="row-cost" style="--card-type-color:var(--steel)">2</span><span class="row-name">Fortify</span><span class="row-qty">×2</span><button class="row-remove">&minus;</button></div>
+            <div class="deck-list-row"><span class="row-cost" style="--card-type-color:var(--gold)">1</span><span class="row-name">Iron Skin</span><span class="row-qty">×1</span><button class="row-remove">&minus;</button></div>
+            <div class="deck-list-row"><span class="row-cost" style="--card-type-color:var(--gold)">1</span><span class="row-name">Bloodlust</span><span class="row-qty">×1</span><button class="row-remove">&minus;</button></div>
+            <div class="deck-list-row"><span class="row-cost" style="--card-type-color:var(--gold)">2</span><span class="row-name">Hoarder</span><span class="row-qty">×1</span><button class="row-remove">&minus;</button></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <p class="mockup-note">
+      풀 그리드(위/왼쪽, "브라우징 영역")는 기존 132×184 카드 프레임을 82% 스케일로 그대로 재사용 —
+      새 카드 비주얼 언어를 만들지 않는다(spec §5.5 요구사항). 매수 배지(<code>n/3</code>)는 카드 우하단에
+      오버레이. 3/3 도달 시 배지가 타입 컬러로 꽉 차고(<code>.full</code>) 카드 자체가 45% 불투명(기존
+      <code>.unaffordable</code> 패턴 재사용) + 클릭 무반응. "이 덱" 목록(아래/오른쪽, "구성 결과 영역")은
+      의도적으로 전혀 다른 실루엣 — 카드 프레임이 아니라 코스트 칩 + 이름 + 매수 + <code>−</code> 버튼으로 된
+      조밀한 리스트 행. 두 영역이 한 화면에서 "지금 보고 있는 것"과 "지금까지 고른 것"으로 시각적으로
+      분리되어야 한다는 spec §5.5 요구를 그리드 vs. 리스트라는 서로 다른 레이아웃 문법으로 만족시켰다.
+      20장 미만이 되면 <code>.deck-counter</code>가 <code>.invalid</code>(crimson)로 바뀌고 그 아래
+      "최소 20장이 필요합니다" 문구가 노출된다(아래 상태 예시 참고).
+    </p>
+  </div>
+
+  <div>
+    <div class="mockup-caption">state: 덱이 최소 장수 미만일 때 (spec §5.5 "덱: N/30" 경고)</div>
+    <div class="editor-topbar" style="max-width:520px;">
+      <input class="deck-name-input" value="번개 러시" />
+      <span class="deck-counter invalid">덱: 14/30 (최소 20)</span>
+      <button class="btn btn-primary btn-done">완료</button>
+    </div>
+    <p class="editor-hint" style="max-width:520px;">최소 20장이 필요합니다</p>
+  </div>
+
+</div>
+
+</body>
+</html>

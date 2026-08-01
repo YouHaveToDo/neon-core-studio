@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<title>ARCANE LEDGER — 전적 화면 목업 (plan 5.2, spec §6.5)</title>
+<link rel="stylesheet" href="../../css/style.css" />
+<link rel="stylesheet" href="pvp-components.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <span class="brand">ARCANE LEDGER</span>
+</header>
+
+<div class="mockup-page">
+
+  <div>
+    <div class="mockup-caption">screen: 전적 (spec §6.5)</div>
+    <div class="overlay-panel" style="max-width:480px; text-align:left;">
+      <h2 style="text-align:center;">전적</h2>
+
+      <div class="history-header">
+        <div class="history-stat wins"><div class="stat-value">18</div><div class="stat-label">승</div></div>
+        <div class="history-divider"></div>
+        <div class="history-stat losses"><div class="stat-value">11</div><div class="stat-label">패</div></div>
+      </div>
+
+      <div class="history-list">
+        <div class="history-row">
+          <span class="result-chip win">승</span>
+          <span class="history-opponent">야공이</span>
+          <span class="history-date">2026-08-01</span>
+        </div>
+        <div class="history-row">
+          <span class="result-chip win">승<span class="forfeit-tag">(기권)</span></span>
+          <span class="history-opponent">붉은장미</span>
+          <span class="history-date">2026-07-31</span>
+        </div>
+        <div class="history-row">
+          <span class="result-chip loss">패</span>
+          <span class="history-opponent">천둥지기</span>
+          <span class="history-date">2026-07-31</span>
+        </div>
+        <div class="history-row">
+          <span class="result-chip win">승</span>
+          <span class="history-opponent">먹구름</span>
+          <span class="history-date">2026-07-30</span>
+        </div>
+        <div class="history-row">
+          <span class="result-chip loss">패</span>
+          <span class="history-opponent">야공이</span>
+          <span class="history-date">2026-07-29</span>
+        </div>
+      </div>
+    </div>
+    <p class="mockup-note">
+      상단 승/패 집계는 별도 카운터가 아니라 리스트에서 파생(spec §6.5) — 시각적으로도 "리스트의 요약"임을
+      드러내려고 큰 숫자 두 개(승=gold, 패=crimson — 기존 승리/패배 화면 색 관례 재사용)를 얇은 구분선으로만
+      나눴다. 각 행: 결과 칩 + 상대 표시 이름 + 날짜(<code>YYYY-MM-DD</code>). 기권승은 같은 gold 칩에
+      <code>(기권)</code> 보조 라벨만 추가 — 승/패 집계에는 동일하게 반영되지만 시각적으로 구분된다는 요구를
+      새 색상 없이 텍스트 라벨로 해결했다(3번째 색을 팔레트에 추가하지 않기 위한 선택).
+    </p>
+  </div>
+
+  <div>
+    <div class="mockup-caption">state: 매치 기록 없음 (spec §6.5 empty state)</div>
+    <div class="overlay-panel" style="max-width:480px; text-align:left;">
+      <h2 style="text-align:center;">전적</h2>
+      <div class="history-header">
+        <div class="history-stat wins"><div class="stat-value">0</div><div class="stat-label">승</div></div>
+        <div class="history-divider"></div>
+        <div class="history-stat losses"><div class="stat-value">0</div><div class="stat-label">패</div></div>
+      </div>
+      <div class="history-list">
+        <div class="history-empty">아직 플레이한 매치가 없습니다</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>
