@@ -3,9 +3,9 @@ const { pool } = require('../db');
 const { requireAuth } = require('../middleware/requireAuth');
 
 // spec §6.5: match history screen. Single read-only endpoint -- rows are
-// only ever written by the WS relay (matchHistory.js's recordMatchResult,
-// called from ws/server.js on report_result / forfeit), never through this
-// HTTP route.
+// only ever written by the WS relay (lib/matchHistory.js's recordMatchResult/
+// recordVoidMatch, called from ws/server.js on report_result / forfeit /
+// simultaneous-double-disconnect), never through this HTTP route.
 const router = express.Router();
 router.use(requireAuth);
 
@@ -39,7 +39,7 @@ router.get('/', async (req, res) => {
   );
   const matches = result.rows.map((row) => ({
     opponentDisplayName: row.opponent_display_name,
-    result: row.result, // 'win' | 'loss' | 'win_forfeit'
+    result: row.result, // 'win' | 'loss' | 'win_forfeit' | 'void' (QA finding #2, docs/qa/online-pvp-milestone.md)
     playedAt: formatDate(row.played_at),
   }));
   res.json({ matches });

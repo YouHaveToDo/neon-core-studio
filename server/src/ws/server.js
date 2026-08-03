@@ -27,7 +27,7 @@
 
 const { WebSocketServer } = require('ws');
 const { readSessionCookie, findAccountBySessionToken } = require('../lib/session');
-const { recordMatchResult } = require('../lib/matchHistory');
+const { recordMatchResult, recordVoidMatch } = require('../lib/matchHistory');
 const rooms = require('./rooms');
 const { TYPE, errorMessage, sendJson } = require('./protocol');
 const {
@@ -108,7 +108,7 @@ function handleMessage(ws, raw) {
 
   switch (msg.type) {
     case TYPE.ROOM_CREATE:
-      return onRoomCreate(ws);
+      return onRoomCreate(ws, msg);
     case TYPE.ROOM_JOIN:
       return onRoomJoin(ws, msg);
     case TYPE.LEAVE_ROOM:
@@ -128,11 +128,29 @@ function handleMessage(ws, raw) {
   }
 }
 
-function onRoomCreate(ws) {
+// QA finding #3 (docs/qa/online-pvp-milestone.md): the relay never told
+// either client how big the OTHER player's deck actually is, so js/state.js
+// fell back to the local player's own deck length -- wrong whenever the two
+// decks differ in size. Both room_create and room_join now optionally carry
+// the sender's own deck size (already known client-side by the time either
+// message is sent -- deck selection, spec §6.1, always happens before the
+// lobby, spec §6.2); not a validated/trusted-for-gameplay number (nothing
+// server-side enforces 20-30 here, that boundary is entirely routes/decks.js's
+// job already) -- purely relayed to the opponent for the public deck-count
+// display (spec §7.2). Anything that isn't a sane positive integer is
+// treated as "unknown" (null) rather than silently coerced to something
+// wrong.
+function parseDeckSize(value) {
+  const n = Number(value);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+function onRoomCreate(ws, msg) {
   if (ws.roomCode) {
     return sendJson(ws, errorMessage('ALREADY_IN_ROOM', '이미 방에 참여 중입니다'));
   }
-  const room = rooms.createRoom({ accountId: ws.accountId, displayName: ws.displayName, ws });
+  const deckSize = parseDeckSize(msg.deckSize);
+  const room = rooms.createRoom({ accountId: ws.accountId, displayName: ws.displayName, deckSize, ws });
   ws.roomCode = room.code;
   sendJson(ws, { type: TYPE.ROOM_CREATED, code: room.code });
 }
@@ -143,7 +161,8 @@ function onRoomJoin(ws, msg) {
     return sendJson(ws, errorMessage('INVALID_CODE', '방 코드를 입력해주세요'));
   }
 
-  const result = rooms.joinRoom(code, { accountId: ws.accountId, displayName: ws.displayName, ws });
+  const deckSize = parseDeckSize(msg.deckSize);
+  const result = rooms.joinRoom(code, { accountId: ws.accountId, displayName: ws.displayName, deckSize, ws });
   if (!result.ok) {
     return sendJson(ws, errorMessage(result.error, roomErrorText(result.error)));
   }
@@ -168,7 +187,7 @@ function onRoomJoin(ws, msg) {
   sendJson(ws, {
     type: TYPE.ROOM_JOINED,
     code: room.code,
-    opponent: opponent ? { displayName: opponent.displayName } : null,
+    opponent: opponent ? { displayName: opponent.displayName, deckSize: opponent.deckSize } : null,
     reconnected,
     turn: room.turn ? { activeAccountId: room.turn.activeAccountId, deadline: room.turn.deadline } : null,
   });
@@ -176,7 +195,7 @@ function onRoomJoin(ws, msg) {
   if (opponent && opponent.connected && opponent.ws) {
     sendJson(opponent.ws, {
       type: reconnected ? TYPE.OPPONENT_RECONNECTED : TYPE.OPPONENT_JOINED,
-      opponent: { displayName: ws.displayName },
+      opponent: { displayName: ws.displayName, deckSize },
     });
   }
 }
@@ -447,7 +466,75 @@ function onDisconnectGraceExpired(room, accountId) {
   if (!player || player.connected) return; // reconnected in the meantime, defensive no-op
   const opponent = rooms.opponentOf(room, accountId);
   if (!opponent) return;
-  finalizeForfeit(room, { winner: opponent, loser: player, reason: 'disconnect_timeout' });
+
+  player.graceTimeoutHandle = null;
+  player.graceExpired = true;
+
+  if (opponent.connected) {
+    // The normal, single-disconnect case: someone is actually still here to
+    // award the forfeit win to.
+    finalizeForfeit(room, { winner: opponent, loser: player, reason: 'disconnect_timeout' });
+    return;
+  }
+
+  // QA finding #2 (docs/qa/online-pvp-milestone.md): the opponent is ALSO
+  // currently disconnected -- a simultaneous double-disconnect. There is no
+  // one present to award a forfeit win to, so this can't resolve as a normal
+  // forfeit no matter whose grace timer happens to fire first (that would
+  // just be an arbitrary tiebreak on timer-firing order, not a meaningful
+  // result).
+  if (opponent.graceExpired) {
+    // The opponent's OWN grace period already expired too (their timer fired
+    // before this one, saw the same "still disconnected" state, and left
+    // graceExpired=true for exactly this moment) -- both sides are now
+    // confirmed gone with neither having reconnected. Resolve as a void/
+    // no-contest for both rather than leaving the match to vanish silently
+    // (the bug being fixed) or crowning an arbitrary "winner".
+    finalizeVoidMatch(room, player, opponent);
+    return;
+  }
+
+  // Opponent's own grace timer is still running (their disconnect landed
+  // slightly after this one, or their timer just hasn't fired yet) -- wait
+  // for it. Either they reconnect first (clears graceExpired via
+  // rooms.joinRoom's reconnect branch and this player's own timer already
+  // being cleared/expired is harmless), or their timer also expires and
+  // finds THIS player's graceExpired already true, taking the branch above.
+}
+
+/**
+ * Resolves a genuinely simultaneous double-disconnect (QA finding #2): both
+ * players' 45s grace periods ran out with neither reconnecting. Writes a
+ * symmetric 'void' match_history row for both accounts (see
+ * lib/matchHistory.js's recordVoidMatch) and tears the room down. Does NOT
+ * attempt to notify either socket live (match_ended) -- by definition both
+ * are disconnected at this point, so there's nothing to notify; the
+ * match_history row is the durable record either player will see once they
+ * next log in and check their match history (spec §6.5).
+ */
+async function finalizeVoidMatch(room, playerA, playerB) {
+  clearRoomTimers(room);
+
+  try {
+    await recordVoidMatch({
+      playerA: { accountId: playerA.accountId, displayName: playerA.displayName },
+      playerB: { accountId: playerB.accountId, displayName: playerB.displayName },
+    });
+  } catch (err) {
+    console.error('match_history write failed (void double-disconnect)', err);
+  }
+
+  // Defensive only -- in the vast majority of real double-disconnects
+  // neither socket is actually open anymore by the time both grace timers
+  // have expired, but if either somehow reconnected a socket without the
+  // room-level bookkeeping reflecting it yet, don't leave them hanging.
+  for (const player of [playerA, playerB]) {
+    if (player.connected && player.ws) {
+      sendJson(player.ws, { type: TYPE.MATCH_ENDED, result: 'void', reason: 'double_disconnect' });
+    }
+  }
+
+  endRoomAndClearSockets(room);
 }
 
 // Ending a room (match_ended) should free both sockets to create/join a new
@@ -468,8 +555,8 @@ function handleClose(ws) {
   if (!info) return;
   const { room, player } = info;
 
-  // Both players gone (markDisconnected already deleted the room in that
-  // case) -- nothing left to pause/notify/grace-time for.
+  // A solo room (no opponent ever joined) is deleted outright by
+  // markDisconnected itself -- nothing left to pause/notify/grace-time for.
   if (rooms.getRoom(room.code) !== room) {
     clearRoomTimers(room);
     return;
@@ -477,6 +564,16 @@ function handleClose(ws) {
 
   pauseTurnTimerIfRunning(room);
 
+  // QA finding #2 (docs/qa/online-pvp-milestone.md): this player's own 45s
+  // grace timer is armed unconditionally now, even if the opponent is ALSO
+  // currently disconnected (a simultaneous double-disconnect) -- the old
+  // code short-circuited this whole block in that case because
+  // markDisconnected() used to delete the room the instant no one was
+  // connected, which silently canceled BOTH sides' forfeit/void resolution.
+  // rooms.markDisconnected() no longer deletes a full room just because
+  // it's momentarily empty, so this always has a live room to work with; see
+  // onDisconnectGraceExpired() for how a still-disconnected opponent gets
+  // resolved once (if) this timer actually fires.
   const opponent = rooms.opponentOf(room, player.accountId);
   if (opponent && opponent.connected && opponent.ws) {
     sendJson(opponent.ws, { type: TYPE.OPPONENT_DISCONNECTED, disconnectedAt: player.disconnectedAt });

@@ -289,5 +289,8 @@
 .result-chip { font-size: 11px; font-weight: 700; letter-spacing: 0.02em; padding: 4px 10px; border-radius: 10px; white-space: nowrap; }
 .result-chip.win { background: rgba(212, 175, 55, 0.16); color: var(--gold); border: 1px solid rgba(212, 175, 55, 0.4); }
 .result-chip.loss { background: rgba(194, 59, 76, 0.14); color: var(--crimson); border: 1px solid rgba(194, 59, 76, 0.4); }
+/* 'void' (QA finding #2: simultaneous double-disconnect, docs/qa/online-pvp-milestone.md) --
+   neutral/muted, deliberately not gold (win) or crimson (loss): it's neither. */
+.result-chip.void { background: rgba(184, 169, 154, 0.14); color: var(--ink-dim); border: 1px solid rgba(184, 169, 154, 0.4); }
 .result-chip .forfeit-tag { font-weight: 400; color: var(--ink-faint); margin-left: 3px; }
 .history-empty { text-align: center; padding: 40px 20px; color: var(--ink-faint); font-size: 13px; }

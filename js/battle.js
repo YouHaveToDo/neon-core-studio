@@ -192,25 +192,54 @@ const Battle = (() => {
     queue.forEach((payload) => AL.applyRemoteAction(payload));
   }
 
+  // QA finding #1 fix (docs/qa/online-pvp-milestone.md, the Blocker): this
+  // used to ONLY update the timer's numbers. That left the actual
+  // turn-boundary state transition (whose turn it really is, hand
+  // discard/draw) depending entirely on the peer `action` channel's
+  // endTurn/turnStart messages -- sent by the ACTIVE player's own client,
+  // which a frozen/unresponsive client, or one still parked on the
+  // How-to-Play overlay, never sends. turn_started is the server's own
+  // authoritative "whose turn is it NOW" broadcast and is guaranteed to
+  // reach BOTH clients regardless of what the other one's JS is doing --
+  // reconcileMyTurnStart()/reconcileOpponentTurnStart() (js/state.js) make
+  // it actually drive the real game state, not just the countdown display.
+  // Both are idempotent no-ops if local state already agrees (whichever of
+  // "the real peer action" or "this server broadcast" arrives first for a
+  // given turn boundary just wins), and deliberately run regardless of
+  // AL.state.screen -- a frozen or How-to-Play-stuck client isn't
+  // necessarily looking at the battle screen right now, but the underlying
+  // state transition must still happen.
   function handleTurnStarted(msg) {
     if (!started) return;
     timerDeadline = msg.deadline;
     ensureTimerInterval();
     renderTimerTick();
+    if (msg.activeAccountId === myAccountId) {
+      AL.reconcileMyTurnStart();
+    } else {
+      AL.reconcileOpponentTurnStart();
+    }
   }
 
   // Server fired this because the ACTIVE player's 24s ran out with no
   // end_turn. Only the client whose OWN turn timed out has anything to do --
   // the other client just observes the normal turn-pass once that client's
-  // resulting 'endTurn' action arrives over the peer channel, same as any
-  // other end of turn. spec §7.3 steps 1-2 (cancel unresolved selected card
-  // with no mana spent, discard the rest of the hand, pass the turn) are
-  // EXACTLY what AL.endTurn() already does (see js/state.js) -- a timeout is
-  // handled identically to a manual End Turn click, just without also
-  // sending end_turn to the server (which already moved on by itself).
+  // resulting 'endTurn' action arrives over the peer channel (or, per the
+  // fix above, once the server's own turn_started broadcast reconciles it
+  // regardless). spec §7.3 steps 1-2 (cancel unresolved selected card with
+  // no mana spent, discard the rest of the hand, pass the turn) are EXACTLY
+  // what AL.endTurn() already does (see js/state.js) -- a timeout is handled
+  // identically to a manual End Turn click, just without also sending
+  // end_turn to the server (which already moved on by itself). Deliberately
+  // NOT gated on AL.state.screen anymore (QA's Repro B: a player who leaves
+  // How-to-Play open past their own timeout used to keep their turn
+  // indefinitely, since this whole handler used to no-op while off the
+  // battle screen) -- discarding a hand and passing a turn is a state
+  // operation, independent of what's currently on screen; the player simply
+  // won't SEE the result until they return to battle, same as any other
+  // state change while a sub-screen is open.
   function handleTurnTimeout(msg) {
     if (!started || msg.accountId !== myAccountId) return;
-    if (AL.state.screen !== 'battle') return;
     if (AL.state.turn !== 'player' || AL.state.frozen) return; // defensive -- shouldn't happen if the server and this client agree on whose turn it is
     AL.endTurn();
   }

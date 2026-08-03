@@ -41,4 +41,36 @@ async function recordMatchResult({ winner, loser, forfeit }) {
   }
 }
 
-module.exports = { recordMatchResult };
+/**
+ * Writes a 'void' match_history row for BOTH accounts (QA finding #2:
+ * simultaneous double-disconnect). Used when neither player's grace period
+ * ends with anyone actually present to award a forfeit win to (see
+ * ws/server.js's onDisconnectGraceExpired) -- both sides get a symmetric,
+ * clearly-labeled non-outcome instead of one side arbitrarily "winning" a
+ * match neither of them was really connected to finish, and instead of the
+ * match silently vanishing with no record at all (the bug being fixed).
+ *
+ * playerA/playerB: { accountId, displayName }
+ */
+async function recordVoidMatch({ playerA, playerB }) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `INSERT INTO match_history (account_id, opponent_display_name, result) VALUES ($1, $2, 'void')`,
+      [playerA.accountId, playerB.displayName]
+    );
+    await client.query(
+      `INSERT INTO match_history (account_id, opponent_display_name, result) VALUES ($1, $2, 'void')`,
+      [playerB.accountId, playerA.displayName]
+    );
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+module.exports = { recordMatchResult, recordVoidMatch };

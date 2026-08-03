@@ -60,6 +60,7 @@ const UI = (() => {
     // themselves are wired in js/main.js.
     el.victoryTitle = document.getElementById('victory-title');
     el.victorySubtitle = document.getElementById('victory-subtitle');
+    el.defeatTitle = document.getElementById('defeat-title');
     el.defeatSubtitle = document.getElementById('defeat-subtitle');
   }
 
@@ -100,8 +101,8 @@ const UI = (() => {
   }
 
   // ---- Match end (plan.md 4.8, spec §6.4) --------------------------------
-  // Text-only: js/state.js's matchResult drives which of the 3 headline
-  // variants shows, js/battle.js/js/main.js own the button behavior.
+  // Text-only: js/state.js's matchResult drives which headline variant
+  // shows, js/battle.js/js/main.js own the button behavior.
   function renderMatchEnd(state) {
     const oppName = state.opponent && state.opponent.name;
     const subtitle = oppName ? `상대: ${oppName}` : '';
@@ -111,6 +112,13 @@ const UI = (() => {
         : '승리!';
       el.victorySubtitle.textContent = subtitle;
     } else {
+      // 'void' (QA finding #2: simultaneous double-disconnect, no one
+      // present to award a forfeit win) reuses the defeat screen shell but
+      // is explicitly NOT framed as a loss -- distinct title copy so a
+      // player doesn't read this as "you lost" when neither side did.
+      el.defeatTitle.textContent = state.matchResult === 'void'
+        ? '무효 처리 (연결 끊김)'
+        : '패배';
       el.defeatSubtitle.textContent = subtitle;
     }
   }

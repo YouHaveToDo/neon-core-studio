@@ -90,7 +90,7 @@ const AL = (() => {
     // messages — this file has no socket of its own, so it only exposes the
     // gate (setFrozen) and honors it in every local input entry point below.
     frozen: false,
-    matchResult: null, // null | 'win' | 'loss' | 'win_forfeit' — set on match end (spec §6.4)
+    matchResult: null, // null | 'win' | 'loss' | 'win_forfeit' | 'void' — set on match end (spec §6.4; 'void' is QA finding #2's simultaneous-double-disconnect no-contest outcome, never locally detected, only ever arrives via endMatchByResult)
     // How-to-play overlay (docs/design/onboarding.md): 'first' = shown once
     // automatically before the first battle; 'reopen' = opened via the ?
     // button mid-match and must return to whatever screen was behind it.
@@ -195,8 +195,14 @@ const AL = (() => {
   //                    left null until the lobby (Phase 4.5) supplies it.
   //   opponentDeckSize — how many cards are in the opponent's deck, so the
   //                    public deck-count UI (spec §7.2) has a real number to
-  //                    show. Defaults to the same size as `deck` as a stand-in
-  //                    until match-start metadata carries the real value.
+  //                    show. Supplied by js/match.js from the relay's real
+  //                    opponent.deckSize (room_joined/opponent_joined,
+  //                    server/src/ws/protocol.js -- QA finding #3, docs/qa/
+  //                    online-pvp-milestone.md). Falls back to this client's
+  //                    OWN deck length only as a last resort (e.g. the
+  //                    no-args devtools/"New Run" smoke-test path, js/main.js,
+  //                    which never goes through the relay at all) -- in any
+  //                    real match this is always the server-relayed value.
   function startMatch(opts) {
     opts = opts || {};
     const deck = (opts.deck && opts.deck.length ? opts.deck : STARTER_DECK).slice();
@@ -545,6 +551,59 @@ const AL = (() => {
     localTurnStart();
   }
 
+  // ---- Server-authoritative turn reconciliation (QA finding #1 fix) --------
+  // docs/qa/online-pvp-milestone.md's Blocker: before this, the ONLY way
+  // either side's turn-boundary state (state.turn, hand discard/draw) ever
+  // actually advanced was via the peer `action` channel's endTurn/turnStart
+  // messages -- which are sent by the ACTIVE player's own client. If that
+  // client is frozen/unresponsive, or simply hasn't dismissed its own
+  // How-to-Play overlay yet, those messages never arrive, and the relay's
+  // server-authoritative turn_started broadcast (which DOES always arrive,
+  // independent of the other client's JS ever running -- that's the entire
+  // point of server-side timer enforcement, spec §7.3) was only ever used to
+  // update the timer's numbers, never the actual game state.
+  //
+  // js/battle.js calls exactly one of these two functions every time a
+  // turn_started message arrives, based on whether the server says it's now
+  // THIS client's turn or the opponent's -- regardless of which screen is
+  // currently showing (a frozen/slow client isn't going to be looking at the
+  // right screen anyway) and regardless of whether the normal peer action
+  // for the same boundary has arrived yet. Both are idempotent no-ops if
+  // local state already agrees with the server (checked via state.turn),
+  // so whichever of "the real peer action" or "this server-driven
+  // reconciliation" happens to arrive first for a given turn boundary just
+  // wins -- the other is a harmless no-op, no double-discard/double-draw
+  // risk (see also localTurnStart()'s own hand.length===0 guard above,
+  // which independently protects against a double draw either way).
+
+  // Server says MY turn is starting now. If my own local state doesn't
+  // already reflect that, the opponent's real 'endTurn' peer action hasn't
+  // reached me yet -- most likely because they're frozen/unresponsive
+  // (QA's Repro A). Apply exactly the same transition a real peer endTurn
+  // action would (discard my mirrored view of their hand, start my own turn
+  // for real) instead of waiting for a message that, in the failure mode
+  // this exists to fix, may never come.
+  function reconcileMyTurnStart() {
+    if (state.turn === 'player') return; // already there -- nothing to reconcile
+    applyRemoteEndTurn();
+  }
+
+  // Server says it's now the OPPONENT's turn, but my own local state still
+  // says it's mine -- most likely because I'm the client whose turn just
+  // timed out and I was frozen, or parked on a sub-screen (How-to-Play, QA's
+  // Repro B) when the server's turn_timeout/turn_started messages arrived.
+  // Force the same local transition a manual End Turn does (cancel any
+  // unresolved selection with no mana spent, discard my hand, pass the
+  // turn -- spec §7.3) WITHOUT sending another end_turn to the server: it
+  // already advanced its own clock when it decided my turn was over, so a
+  // second end_turn from me would just bounce off as NOT_YOUR_TURN (see
+  // endTurn()'s emitAction, which only ever notifies the OPPONENT's client,
+  // never the relay's own turn clock).
+  function reconcileOpponentTurnStart() {
+    if (state.turn !== 'player') return; // already advanced -- nothing to reconcile
+    endTurn();
+  }
+
   // Local player's turn starting again after the opponent ends theirs
   // (mirrors the old playerTurnStart()). Only ever called from
   // applyRemoteEndTurn() above — i.e. this always means "my real turn is
@@ -557,14 +616,32 @@ const AL = (() => {
     state.selected = null;
     state.turn = 'player';
     state.turnBusy = false;
-    const drawCount = PLAYER_START.drawPerTurn + state.player.powers.hoarder;
-    drawCards(state.player, drawCount);
+    // QA finding #1's hand-count corruption (docs/qa/online-pvp-milestone.md:
+    // "hand grew from 6 to 11 cards"): the second player's OPENING hand
+    // (spec §6.3 step 3's "후공 6장 드로우") is dealt directly into
+    // state.player.hand by startMatch() and IS their full turn-1 hand --
+    // spec §7.1's draw table is explicit the 6-card opening draw *replaces*
+    // the normal 5-per-turn draw for that one turn, it does not stack an
+    // additional draw on top. Every OTHER call of localTurnStart() always
+    // finds state.player.hand already emptied by this same player's own
+    // preceding endTurn() (which discards the full hand before the turn
+    // passes) -- so "hand still has cards right now" uniquely identifies
+    // this one first-turn case, without needing a separate one-shot flag.
+    // Skipping the draw here (rather than skipping the whole function) still
+    // correctly performs the turn-start bookkeeping (turn flips, selected
+    // clears, turnBusy resets) for that first turn.
+    const drawCount = state.player.hand.length === 0
+      ? PLAYER_START.drawPerTurn + state.player.powers.hoarder
+      : 0;
+    if (drawCount > 0) drawCards(state.player, drawCount);
     emit();
     // Mirror image of applyRemoteTurnStart(): tell the opponent's client
     // exactly how many cards we (the newly active player) drew, so their
     // state.opponent (mirroring us) can reset block/mana and draw the same
     // count of HIDDEN placeholders without ever needing to know our real
-    // hoarder-adjusted math themselves.
+    // hoarder-adjusted math themselves. drawCount is legitimately 0 for the
+    // second player's first turn (see above) -- applyRemoteTurnStart(0) is a
+    // harmless no-op draw on the other client, exactly mirroring reality.
     emitAction('turnStart', { drawCount });
   }
 
@@ -595,11 +672,16 @@ const AL = (() => {
   }
 
   // Driven by the relay's match_ended message (js/battle.js) — result is one
-  // of 'win' | 'loss' | 'win_forfeit'. Never calls emitMatchEnd (see doc
-  // comment above): this function only ever REACTS to a result that either
-  // this client already reported itself, the opponent reported, or the
-  // server decided via forfeit — it must never trigger a fresh report of its
-  // own no matter which of those three it was.
+  // of 'win' | 'loss' | 'win_forfeit' | 'void'. Never calls emitMatchEnd (see
+  // doc comment above): this function only ever REACTS to a result that
+  // either this client already reported itself, the opponent reported, or
+  // the server decided via forfeit/void — it must never trigger a fresh
+  // report of its own no matter which of those it was. 'void' (QA finding
+  // #2's simultaneous-double-disconnect no-contest) can ONLY arrive this
+  // way — there is no local winMatch()/loseMatch()-style detection for it,
+  // since by definition neither client is in a position to detect it live
+  // (both are disconnected when it happens; this only fires at all for the
+  // rare case a socket reconnects just as the server resolves it).
   function endMatchByResult(result) {
     if (state.screen === 'victory' || state.screen === 'defeat') {
       // Already transitioned locally (winMatch/loseMatch already ran) — just
@@ -612,7 +694,10 @@ const AL = (() => {
     state.turnBusy = false;
     state.frozen = false;
     state.matchResult = result;
-    state.screen = result === 'loss' ? 'defeat' : 'victory';
+    // No dedicated third screen for 'void' (small-team scope call, see
+    // js/ui.js's renderMatchEnd) — it reuses the 'defeat' screen shell with
+    // distinct copy, since it's neither a real win nor a real loss.
+    state.screen = (result === 'loss' || result === 'void') ? 'defeat' : 'victory';
     emit();
   }
 
@@ -638,6 +723,8 @@ const AL = (() => {
     endMatchByResult,
     setFrozen,
     applyRemoteAction,
+    reconcileMyTurnStart,
+    reconcileOpponentTurnStart,
     canPlay,
     cardById,
   };

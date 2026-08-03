@@ -567,13 +567,16 @@
     </div>
   </section>
 
-  <!-- Defeat screen (plan.md 4.8, spec §6.4) -- only one text variant
-       ("패배"), so the title stays static; subtitle shows opponent name
-       same as the victory screen above. -->
+  <!-- Defeat screen (plan.md 4.8, spec §6.4) -- #defeat-title carries two
+       text variants ("패배" / "무효 처리 (상대방 접속 종료)" for QA finding
+       #2's simultaneous-double-disconnect void outcome, docs/qa/
+       online-pvp-milestone.md), set by js/ui.js from state.matchResult, same
+       pattern as #victory-title. subtitle shows opponent name same as the
+       victory screen above. -->
   <section id="screen-defeat" class="screen hidden">
     <div class="overlay-panel">
       <svg class="icon icon-skull-big"><use href="#icon-skull"></use></svg>
-      <h2>패배</h2>
+      <h2 id="defeat-title">패배</h2>
       <p id="defeat-subtitle" class="subtitle"></p>
       <div class="match-end-actions">
         <button id="btn-restart-defeat" class="btn btn-primary">다시 플레이</button>

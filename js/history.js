@@ -36,12 +36,21 @@ const History = (() => {
 
   // spec §6.5: "승" / "패", with "기권승" shown as "승 (기권)" via a
   // secondary label inside the same gold chip -- no third color, matching
-  // assets/mockups/screen-match-history.html's markup exactly.
+  // assets/mockups/screen-match-history.html's markup exactly. 'void' (QA
+  // finding #2: simultaneous double-disconnect, docs/qa/online-pvp-
+  // milestone.md) is neither a win nor a loss -- gets its own neutral chip
+  // rather than being forced into the win/loss binary the mockup was
+  // designed around.
   function buildResultChip(result) {
     const chip = document.createElement('span');
     if (result === 'loss') {
       chip.className = 'result-chip loss';
       chip.textContent = '패';
+      return chip;
+    }
+    if (result === 'void') {
+      chip.className = 'result-chip void';
+      chip.textContent = '무효';
       return chip;
     }
     chip.className = 'result-chip win';
@@ -59,6 +68,7 @@ const History = (() => {
     let wins = 0;
     let losses = 0;
     matches.forEach((m) => {
+      if (m.result === 'void') return; // no-contest -- counts toward neither
       if (m.result === 'loss') losses += 1;
       else wins += 1; // 'win' or 'win_forfeit' both count as a win, per spec §6.5
     });

@@ -63,6 +63,7 @@ const Match = (() => {
   let isHost = false;
   let roomCode = null;
   let opponentDisplayName = null;
+  let opponentDeckSize = null; // real opponent deck size relayed by the server (QA finding #3) -- null until OPPONENT_JOINED/ROOM_JOINED reports it
   let matchStarting = false; // guards double-handling of turn_started
   let netHandlersRegistered = false;
   let copyResetTimer = null;
@@ -207,6 +208,7 @@ const Match = (() => {
     isHost = false;
     roomCode = null;
     opponentDisplayName = null;
+    opponentDeckSize = null;
     matchStarting = false;
     el.roomLabelTop.textContent = '';
     el.lobbyJoinInput.value = '';
@@ -237,7 +239,10 @@ const Match = (() => {
     el.lobbyCode.textContent = '......';
     try {
       await ensureConnected();
-      Net.send('room_create');
+      // deckSize (QA finding #3): the opponent's client relays this straight
+      // back to us as opponent.deckSize once they join -- see
+      // registerNetHandlers()'s room_joined/opponent_joined handling below.
+      Net.send('room_create', { deckSize: selectedDeck.total });
     } catch (err) {
       setCreateStatusError(err.message);
     }
@@ -321,7 +326,7 @@ const Match = (() => {
     setJoinConnecting(true);
     try {
       await ensureConnected();
-      Net.send('room_join', { code });
+      Net.send('room_join', { code, deckSize: selectedDeck.total });
     } catch (err) {
       setJoinConnecting(false);
       setJoinError(err.message);
@@ -368,7 +373,7 @@ const Match = (() => {
       el.lobbyJoinInput.disabled = true;
       el.btnLobbyJoinSubmit.disabled = true;
       if (msg.opponent) {
-        onBothPresent(msg.opponent.displayName, el.lobbyJoinStatus);
+        onBothPresent(msg.opponent.displayName, msg.opponent.deckSize, el.lobbyJoinStatus);
       } else {
         // Shouldn't happen in the create-then-join ordering the relay
         // enforces (a room can't exist without its creator still connected,
@@ -380,7 +385,7 @@ const Match = (() => {
     });
 
     Net.on('opponent_joined', (msg) => {
-      onBothPresent(msg.opponent.displayName, el.lobbyCreateStatus);
+      onBothPresent(msg.opponent.displayName, msg.opponent.deckSize, el.lobbyCreateStatus);
     });
 
     Net.on('turn_started', (msg) => {
@@ -434,8 +439,9 @@ const Match = (() => {
     return (Math.abs(hashRoomCode(roomCode)) % 2) === 0;
   }
 
-  function onBothPresent(displayName, statusEl) {
+  function onBothPresent(displayName, deckSize, statusEl) {
     opponentDisplayName = displayName;
+    opponentDeckSize = typeof deckSize === 'number' ? deckSize : null;
     setOpponentFound(statusEl, displayName);
 
     const iAmFirst = isHost ? hostGoesFirst() : !hostGoesFirst();
@@ -454,18 +460,17 @@ const Match = (() => {
     const isFirstPlayer = msg.activeAccountId === account.id;
     const deckIds = expandDeck(selectedDeck.cards);
 
-    // NOTE (protocol gap, flagged in the task report): the relay has no
-    // message carrying the opponent's real deck size, so
-    // opponentDeckSize is left unset here and js/state.js's startMatch()
-    // falls back to using OUR OWN deck length as a placeholder for the
-    // opponent's public deck-count display (spec §7.2). That placeholder is
-    // wrong whenever the two decks differ in size -- a real fix needs a
-    // protocol addition (e.g. start_match or a dedicated message carrying
-    // deck size), which is server work out of this session's scope.
+    // opponentDeckSize (QA finding #3, docs/qa/online-pvp-milestone.md): the
+    // relay now carries the opponent's real deck size on room_joined/
+    // opponent_joined (server/src/ws/protocol.js), captured above in
+    // onBothPresent(). Passed straight through here so js/state.js's
+    // startMatch() sizes state.opponent's public deck-count display (spec
+    // §7.2) correctly instead of falling back to our own deck's length.
     AL.startMatch({
       deck: deckIds,
       isFirstPlayer,
       opponentName: opponentDisplayName,
+      opponentDeckSize,
       // Cosmetic-only opponent bust variant (art-direction.md §8.5 rev.4) --
       // seeded from the room code (known identically by both clients, same
       // source hashRoomCode() already uses for the first-player coin flip)

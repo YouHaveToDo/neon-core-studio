@@ -18,16 +18,29 @@
  * ---------------------------------------------------------------------------
  * Client -> Server
  * ---------------------------------------------------------------------------
- * room_create   {}
+ * room_create   { deckSize }
  *   Create a new room. Server replies ROOM_CREATED with a generated code.
+ *   `deckSize` (QA finding #3, docs/qa/online-pvp-milestone.md) is this
+ *   client's own deck's real card count, known client-side by this point
+ *   since deck selection (spec §6.1) always happens before the lobby (§6.2)
+ *   -- relayed to the opponent (OPPONENT_JOINED) purely so their public
+ *   deck-count display (spec §7.2) has a real number instead of guessing.
+ *   Not validated/enforced here (20-30 range enforcement is entirely
+ *   routes/decks.js's job, an existing boundary); an omitted/non-numeric
+ *   value is just treated as "unknown" (null) rather than silently coerced.
  *
- * room_join     { code }
+ * room_join     { code, deckSize }
  *   Join (or reconnect to) a room by its code. Server replies ROOM_JOINED to
  *   the joiner and OPPONENT_JOINED/OPPONENT_RECONNECTED to the other player
  *   already in the room, if any. On a reconnect, this also clears that
  *   player's 45s auto-forfeit grace timer (2.7) and, if both players are now
  *   connected again, resumes the paused turn timer (2.5) from wherever it
- *   was left off -- see ROOM_JOINED's `turn` field below.
+ *   was left off -- see ROOM_JOINED's `turn` field below. `deckSize`: same
+ *   meaning/purpose as room_create's -- see above. On a reconnect, a
+ *   missing/invalid value does NOT overwrite the deck size already recorded
+ *   from this player's original join (deck size can't legitimately change
+ *   mid-match, and a page-reload reconnect may not have it cached
+ *   client-side anymore).
  *
  * leave_room    {}
  *   Voluntarily leave the current room (spec §6.2 "뒤로" button). If no
@@ -90,14 +103,16 @@
  * Server -> Client
  * ---------------------------------------------------------------------------
  * room_created            { code }
- * room_joined              { code, opponent: { displayName } | null,
+ * room_joined              { code, opponent: { displayName, deckSize } | null,
  *                             reconnected,
  *                             turn: { activeAccountId, deadline } | null }
  *   `turn` reflects the room's current turn-timer state at the moment of
  *   joining/reconnecting (post-resume, if this join just resumed a paused
  *   timer) -- null if the match hasn't started yet or the timer is still
- *   paused waiting on the OTHER player to also reconnect.
- * opponent_joined           { opponent: { displayName } }
+ *   paused waiting on the OTHER player to also reconnect. `opponent.deckSize`
+ *   is null if the opponent hasn't reported one (QA finding #3) -- callers
+ *   should treat null as "unknown", not as zero.
+ * opponent_joined           { opponent: { displayName, deckSize } }
  * opponent_disconnected     { disconnectedAt: <ms epoch> }
  * opponent_reconnected      { opponent: { displayName } }
  * action                    { payload, from: <sender displayName> }
@@ -117,9 +132,20 @@
  *   timed-out player's hand/selected-card is applied by that client itself
  *   in response to receiving this message (or, for the opponent's client,
  *   simply observing the turn switch normally).
- * match_ended                { result: 'win' | 'loss' | 'win_forfeit', reason }
+ * match_ended                { result: 'win' | 'loss' | 'win_forfeit' | 'void', reason }
  *                               reason: 'client_reported' | 'forfeit_claimed'
- *                                       | 'disconnect_timeout'
+ *                                       | 'disconnect_timeout' | 'double_disconnect'
+ *   result: 'void' / reason: 'double_disconnect' (QA finding #2, docs/qa/
+ *   online-pvp-milestone.md) is the outcome for a genuinely simultaneous
+ *   double-disconnect: BOTH players' 45s grace periods expire with neither
+ *   having reconnected, so there's no one left present to award a forfeit
+ *   win to. Only ever sent to a socket that's still connected at that exact
+ *   moment (rare in practice, since both sides are by definition
+ *   disconnected when this fires) -- the real, durable record of this
+ *   outcome is the match_history 'void' row written for both accounts
+ *   regardless (see server/src/lib/matchHistory.js's recordVoidMatch),
+ *   which is what actually matters since neither client is likely to be
+ *   listening live when it happens.
  * error                       { code, message }
  *
  * ---------------------------------------------------------------------------
