@@ -175,3 +175,88 @@
 .main-menu-actions { display: flex; flex-direction: column; gap: 12px; }
 .btn-menu-soon { position: relative; }
 .menu-soon-badge { display: inline-block; margin-left: 8px; font-size: 9px; letter-spacing: 0.04em; color: var(--ink-faint); background: var(--bg-inset); border: 1px solid var(--line); border-radius: 8px; padding: 2px 7px; vertical-align: middle; }
+
+/* ==================================================== 4.7/4.9 battle screen
+   Lifted verbatim from assets/mockups/pvp-components.css's "4.9 battle:
+   opponent panel" section (spec §7.2/§7.3/§9) -- opponent portrait/identity
+   row, mini HP bar, hand-count card-back stack, and the shared turn-timer
+   pill. See that file for the full rev.2/rev.3/rev.4 portrait design
+   history; not repeated here. */
+
+.opponent-panel { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 16px 16px 10px; position: relative; z-index: 1; }
+.opponent-identity { display: flex; align-items: center; gap: 10px; }
+.opponent-name { font-family: var(--font-serif); font-size: 15px; letter-spacing: 0.02em; color: var(--ink); }
+
+.opponent-portrait-wrap { position: relative; flex-shrink: 0; }
+.opponent-portrait-frame {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 50% 40%, #223038, var(--bg-raised) 75%);
+  border: 2px solid var(--steel);
+  box-shadow: 0 0 16px rgba(63, 143, 166, 0.35), inset 0 0 12px rgba(0, 0, 0, 0.55);
+  animation: opponent-portrait-pulse 3.6s ease-in-out infinite;
+}
+.opponent-portrait-silhouette { width: 66%; height: 66%; color: var(--steel); filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6)); }
+@keyframes opponent-portrait-pulse {
+  0%, 100% { box-shadow: 0 0 16px rgba(63, 143, 166, 0.35), inset 0 0 12px rgba(0, 0, 0, 0.55); }
+  50% { box-shadow: 0 0 24px rgba(63, 143, 166, 0.55), inset 0 0 12px rgba(0, 0, 0, 0.55); }
+}
+@media (prefers-reduced-motion: reduce) { .opponent-portrait-frame { animation: none; } }
+
+.opponent-meta-row { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; justify-content: center; margin-top: 6px; }
+.opponent-meta-row .vital { font-size: 13px; }
+.opponent-meta-row .pile-counters { margin-left: 0; }
+
+.hand-count-badge { display: flex; align-items: center; gap: 6px; }
+.hand-count-stack { position: relative; width: 30px; height: 22px; flex-shrink: 0; }
+.hand-count-stack .card-back-icon { position: absolute; width: 18px; height: 25px; top: -4px; display: block; }
+.hand-count-stack .card-back-icon:nth-child(1) { left: 0; transform: rotate(-8deg); opacity: 0.8; }
+.hand-count-stack .card-back-icon:nth-child(2) { left: 5px; transform: rotate(3deg); opacity: 0.92; }
+.hand-count-stack .card-back-icon:nth-child(3) { left: 10px; }
+.hand-count-text { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 13px; color: var(--ink-dim); }
+
+.turn-timer { display: flex; align-items: center; gap: 7px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 15px; color: var(--ink); background: var(--bg-inset); border: 1px solid var(--line); border-radius: 8px; padding: 5px 10px; }
+.turn-timer .timer-label { font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); }
+.turn-timer.urgent { color: var(--crimson); border-color: rgba(194, 59, 76, 0.5); animation: timer-pulse 1s ease-in-out infinite; }
+@keyframes timer-pulse {
+  0%, 100% { box-shadow: 0 0 0 rgba(194, 59, 76, 0); }
+  50% { box-shadow: 0 0 14px rgba(194, 59, 76, 0.55); }
+}
+@media (prefers-reduced-motion: reduce) { .turn-timer.urgent { animation: none; } }
+
+.mini-hp-bar { width: 220px; height: 14px; }
+
+/* end-turn-col: wrapper around #turn-timer + #btn-end-turn (mockup used an
+   inline style for this same pairing -- named here since it's real,
+   shipped markup rather than a one-off review swatch). */
+.end-turn-col { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+
+/* ==================================================== 4.7 disconnect overlay
+   .disconnect-banner/.disconnect-timer/.btn-claim-forfeit/.claim-hint lifted
+   verbatim from assets/mockups/pvp-components.css (spec §8.2). The mockup's
+   own .disconnect-overlay/.disconnect-board-mock were a self-contained
+   review swatch (a fake little board inside a small fixed-height box, not
+   meant to be mounted over a real screen) -- .disconnect-overlay-layer below
+   is a programmer-authored replacement wrapper that actually pins the
+   banner over the live #screen-battle (position, inset, backdrop, z-index,
+   pointer-events to block input underneath while it's shown -- spec §8.2:
+   "이 배너가 떠 있는 동안 자신의 카드도 선택/플레이 불가"), noted in the task
+   report as not a literal mockup lift like the rest of this file. */
+.disconnect-overlay-layer { position: absolute; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center; background: rgba(9, 6, 12, 0.55); backdrop-filter: blur(1px); }
+.disconnect-banner { width: min(90%, 380px); background: rgba(21, 15, 26, 0.94); border: 1px solid var(--crimson); border-radius: 12px; padding: 22px 24px; text-align: center; box-shadow: 0 0 30px rgba(194, 59, 76, 0.3), 0 20px 40px rgba(0, 0, 0, 0.5); }
+.disconnect-banner .icon-warning { width: 26px; height: 26px; color: var(--crimson); margin-bottom: 8px; }
+.disconnect-banner h3 { font-family: var(--font-serif); font-size: 15px; margin: 0 0 6px; }
+.disconnect-banner p { font-size: 12.5px; color: var(--ink-dim); margin: 0 0 4px; }
+.disconnect-timer { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 22px; color: var(--crimson); margin: 8px 0 14px; }
+.btn-claim-forfeit { width: 100%; }
+.btn-claim-forfeit:disabled { opacity: 0.35; cursor: default; }
+.claim-hint { font-size: 10.5px; color: var(--ink-faint); margin-top: 8px; }
+
+/* ==================================================== 4.8 match-end screen
+   No mockup source (plan.md never assigned one) -- two buttons side by side
+   from the existing .btn/.btn-primary/.btn-secondary components. */
+.match-end-actions { display: flex; gap: 10px; justify-content: center; margin-top: 6px; }

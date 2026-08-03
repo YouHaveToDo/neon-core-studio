@@ -7,11 +7,16 @@
  * means the opponent is a second human player, so `state.opponent` is now
  * built from the SAME `createPlayerState()` factory as `state.player` —
  * both sides are structurally symmetric (spec §7.1: PLAYER_START mirrored
- * for both). `runEnemyTurn()` is gone; `applyRemoteAction()` is the new
- * seam a future networking module (Phase 2.1-2.3's relay) will call into
- * with whatever the opponent's client reports it did. Nothing in this file
- * opens a socket or knows about the wire format — that's deliberately left
- * for the phase that actually wires the relay in.
+ * for both). `runEnemyTurn()` is gone; `applyRemoteAction()` is the seam
+ * js/battle.js (Phase 4.7) calls into with whatever the opponent's client
+ * reported it did. Nothing in this file opens a socket or knows about the
+ * wire format — js/battle.js owns that translation in both directions: it
+ * feeds parsed `{type, ...}` action objects into applyRemoteAction() below,
+ * and subscribes to this file's onAction()/onMatchEnd() buses to learn when
+ * a LOCAL action (card played, turn ended, our own turn started) needs to be
+ * broadcast to the opponent, or when a local win/loss needs reporting to the
+ * relay (report_result). This file stays 100% synchronous/local either way —
+ * it never awaits a network round-trip for anything.
  *
  * ---- Hidden information / RNG authority (spec §6.3 step 2) ----
  * This client is the sole authority over ITS OWN deck: it shuffles and
@@ -78,7 +83,14 @@ const AL = (() => {
     turn: 'player', // 'player' | 'opponent' — whose turn is currently active (spec §7.2: strict alternation, no simultaneous actions)
     selected: null, // index into player.hand of the card awaiting a target
     turnBusy: false, // true while a turn-boundary action is resolving (input locked)
-    matchResult: null, // null | 'win' | 'loss' — set on match end; win_forfeit (spec §6.4) is future work (disconnect handling, Phase 2.7/4.7)
+    // True while the match is fully paused because the opponent is
+    // disconnected (spec §8.2: "이 배너가 떠 있는 동안 자신의 카드도
+    // 선택/플레이 불가"). Set/cleared by js/battle.js in response to the
+    // relay's opponent_disconnected/opponent_reconnected/match_ended
+    // messages — this file has no socket of its own, so it only exposes the
+    // gate (setFrozen) and honors it in every local input entry point below.
+    frozen: false,
+    matchResult: null, // null | 'win' | 'loss' | 'win_forfeit' — set on match end (spec §6.4)
     // How-to-play overlay (docs/design/onboarding.md): 'first' = shown once
     // automatically before the first battle; 'reopen' = opened via the ?
     // button mid-match and must return to whatever screen was behind it.
@@ -98,6 +110,36 @@ const AL = (() => {
   const fxListeners = [];
   function onFx(fn) { fxListeners.push(fn); }
   function fx(name, payload) { fxListeners.forEach((f) => f(name, payload)); }
+
+  // ---- Outgoing network seam (online-pvp-plan.md 4.7) -----------------------
+  // This file still never opens a socket (see file header) — but a real PvP
+  // match needs to tell the OTHER client what just happened locally, so this
+  // is the mirror-image seam of applyRemoteAction() below: every place a
+  // LOCAL action changes state.player in a way the opponent's client needs to
+  // mirror (resolveCard/endTurn/localTurnStart) also calls emitAction(type,
+  // payload) here. js/battle.js is the only subscriber — it wraps whatever
+  // arrives into a wire `action` message and sends it over Net. The three
+  // action types emitted below are exactly the three applyRemoteAction()
+  // understands (playCard/endTurn/turnStart), so the two clients' state
+  // machines stay in lockstep without this file ever knowing a network
+  // exists. Named emitAction (not just `action`) specifically to avoid
+  // shadowing applyRemoteAction()'s own `action` parameter below.
+  const actionListeners = [];
+  function onAction(fn) { actionListeners.push(fn); }
+  function emitAction(type, payload) { actionListeners.forEach((f) => f(type, payload || {})); }
+
+  // ---- Match-end network seam ------------------------------------------------
+  // Fired ONLY by winMatch()/loseMatch() below (i.e. only when THIS client is
+  // the one that just locally detected the match is over by HP reaching 0 —
+  // spec §6.4's "즉시 판정" rule). js/battle.js listens for this to send
+  // report_result to the relay. Deliberately NOT fired by endMatchByResult()
+  // (below) — that path handles the match_ended message arriving from the
+  // network (opponent's own report, a forfeit, etc.), which must never
+  // itself trigger ANOTHER report_result, or two clients could each report
+  // a result forever.
+  const matchEndListeners = [];
+  function onMatchEnd(fn) { matchEndListeners.push(fn); }
+  function emitMatchEnd(result) { matchEndListeners.forEach((f) => f(result)); }
 
   function sideOf(sideState) { return sideState === state.player ? 'player' : 'opponent'; }
 
@@ -166,6 +208,11 @@ const AL = (() => {
     state.player = createPlayerState();
     state.opponent = createPlayerState();
     state.opponent.name = opts.opponentName || null;
+    // Cosmetic only (art-direction.md §8.5 rev.4, spec §9) — which of the 3
+    // generic opponent-bust variants ui.js renders. Not gameplay-affecting;
+    // defaults to 'a' if the match-start flow (js/match.js) doesn't supply
+    // one (e.g. the no-args devtools smoke-test path).
+    state.opponent.portraitVariant = opts.opponentPortrait || 'a';
 
     // RNG/shuffle authority (spec §6.3 step 2): shuffle only the local
     // player's real deck. The opponent's piles are seeded with HIDDEN
@@ -180,6 +227,7 @@ const AL = (() => {
     state.turn = isFirstPlayer ? 'player' : 'opponent';
     state.selected = null;
     state.turnBusy = false;
+    state.frozen = false;
     state.matchResult = null;
     handKeyCounter = 0;
 
@@ -219,7 +267,7 @@ const AL = (() => {
     const cardId = state.player.hand[handIndex];
     if (!cardId) return false;
     const card = cardById(cardId);
-    return state.turn === 'player' && !state.turnBusy && state.player.mana >= card.cost;
+    return state.turn === 'player' && !state.turnBusy && !state.frozen && state.player.mana >= card.cost;
   }
 
   // True if at least one card left in hand is affordable right now. Used to
@@ -248,7 +296,7 @@ const AL = (() => {
 
   // Called by UI when a hand card is clicked.
   function selectCard(handIndex) {
-    if (state.turn !== 'player' || state.turnBusy) return;
+    if (state.turn !== 'player' || state.turnBusy || state.frozen) return;
     const cardId = state.player.hand[handIndex];
     if (!cardId) return;
     const card = cardById(cardId);
@@ -271,13 +319,13 @@ const AL = (() => {
   // Called by UI when the opponent panel is clicked (only meaningful while a
   // targeted card is selected).
   function targetOpponent() {
-    if (state.turn !== 'player' || state.turnBusy) return;
+    if (state.turn !== 'player' || state.turnBusy || state.frozen) return;
     if (state.selected === null) return;
     resolveCard(state.selected);
   }
 
   function resolveCard(handIndex) {
-    if (state.turn !== 'player') return;
+    if (state.turn !== 'player' || state.frozen) return;
     const cardId = state.player.hand[handIndex];
     const card = cardById(cardId);
     if (!card || state.player.mana < card.cost) return;
@@ -288,6 +336,11 @@ const AL = (() => {
     state.selected = null;
 
     applyCardEffect(card, state.player, state.opponent);
+    // Tell the opponent's client what we just played (spec §7.2: a played
+    // card is revealed the instant it's played) — always fires, even if the
+    // effect below is about to end the match, so the fatal card still shows
+    // up on the loser's screen too.
+    emitAction('playCard', { cardId });
 
     if (card.type === 'power') {
       state.player.exhaustPile.push(cardId);
@@ -302,12 +355,10 @@ const AL = (() => {
     if (state.player.hp <= 0) { loseMatch(); return; }
     emit();
     maybeAutoEndTurn();
-    // NOTE: sending this play to the relay (so the opponent's client can
-    // reveal it) is future networking work — see applyRemoteAction below.
   }
 
   function endTurn() {
-    if (state.turnBusy || state.turn !== 'player') return;
+    if (state.turnBusy || state.turn !== 'player' || state.frozen) return;
     state.selected = null;
     state.player.discardPile.push(...state.player.hand);
     state.player.hand = [];
@@ -315,11 +366,16 @@ const AL = (() => {
     state.turnBusy = true;
     state.turn = 'opponent';
     emit();
-    // NOTE: In the wired build, this is where the local "end turn" action
-    // gets sent to the relay instead of just flipping state.turn locally.
-    // Nothing here drives the opponent's turn forward — that only happens
-    // once applyRemoteAction() below is actually fed real network messages
-    // (Phase 2.1-2.3 relay + Phase 4.7 integration).
+    // Tell the opponent's client our turn just ended (spec §7.2 strict
+    // alternation) — js/battle.js relays this as an `action` message AND, if
+    // this was a manual click (not a server-fired timeout, which already
+    // advanced the server's own turn clock), also sends `end_turn` to the
+    // relay so the server's 24s clock hands off to the opponent. See
+    // js/battle.js for exactly which callers do which.
+    emitAction('endTurn');
+    // Nothing here drives the opponent's turn forward on THIS client — that
+    // is a mirrored effect of the OTHER client applying our 'endTurn' action
+    // via applyRemoteAction() below, and vice versa when they end theirs.
   }
 
   // ---- Shared card-effect resolution ---------------------------------------
@@ -490,23 +546,44 @@ const AL = (() => {
   }
 
   // Local player's turn starting again after the opponent ends theirs
-  // (mirrors the old playerTurnStart()).
+  // (mirrors the old playerTurnStart()). Only ever called from
+  // applyRemoteEndTurn() above — i.e. this always means "my real turn is
+  // genuinely starting right now, because I just heard the opponent end
+  // theirs" (turn 1 is the one exception, handled directly by startMatch()'s
+  // own draw, which needs no network round-trip — see spec §6.3 step 2).
   function localTurnStart() {
     state.player.block = 0;
     state.player.mana = state.player.maxMana;
     state.selected = null;
     state.turn = 'player';
     state.turnBusy = false;
-    drawCards(state.player, PLAYER_START.drawPerTurn + state.player.powers.hoarder);
+    const drawCount = PLAYER_START.drawPerTurn + state.player.powers.hoarder;
+    drawCards(state.player, drawCount);
     emit();
+    // Mirror image of applyRemoteTurnStart(): tell the opponent's client
+    // exactly how many cards we (the newly active player) drew, so their
+    // state.opponent (mirroring us) can reset block/mana and draw the same
+    // count of HIDDEN placeholders without ever needing to know our real
+    // hoarder-adjusted math themselves.
+    emitAction('turnStart', { drawCount });
   }
 
   // ---- Match end ------------------------------------------------------------
+  // spec §6.4: HP hitting 0 ends the match IMMEDIATELY on whichever client
+  // detects it — no waiting for a server round-trip. winMatch()/loseMatch()
+  // are that immediate local transition, and are the only two places that
+  // fire onMatchEnd() (js/battle.js reports the result to the relay from
+  // there). The eventual match_ended broadcast from the relay is handled by
+  // endMatchByResult() below instead, which is deliberately a no-op replay
+  // of the same transition if we already got here locally, and the ONLY way
+  // to reach the victory/defeat screen for an outcome this client couldn't
+  // have detected itself (win_forfeit, or "opponent reported before I did").
   function winMatch() {
     state.turnBusy = false;
     state.matchResult = 'win';
     state.screen = 'victory';
     emit();
+    emitMatchEnd('win');
   }
 
   function loseMatch() {
@@ -514,18 +591,52 @@ const AL = (() => {
     state.matchResult = 'loss';
     state.screen = 'defeat';
     emit();
+    emitMatchEnd('loss');
+  }
+
+  // Driven by the relay's match_ended message (js/battle.js) — result is one
+  // of 'win' | 'loss' | 'win_forfeit'. Never calls emitMatchEnd (see doc
+  // comment above): this function only ever REACTS to a result that either
+  // this client already reported itself, the opponent reported, or the
+  // server decided via forfeit — it must never trigger a fresh report of its
+  // own no matter which of those three it was.
+  function endMatchByResult(result) {
+    if (state.screen === 'victory' || state.screen === 'defeat') {
+      // Already transitioned locally (winMatch/loseMatch already ran) — just
+      // make sure matchResult reflects the authoritative server-confirmed
+      // value in case it's more specific than our optimistic local guess
+      // (e.g. plain 'win' -> 'win_forfeit').
+      if (state.matchResult !== result) { state.matchResult = result; emit(); }
+      return;
+    }
+    state.turnBusy = false;
+    state.frozen = false;
+    state.matchResult = result;
+    state.screen = result === 'loss' ? 'defeat' : 'victory';
+    emit();
+  }
+
+  function setFrozen(value) {
+    const next = !!value;
+    if (state.frozen === next) return;
+    state.frozen = next;
+    emit();
   }
 
   return {
     state,
     onChange,
     onFx,
+    onAction,
+    onMatchEnd,
     startMatch,
     openHowto,
     closeHowto,
     selectCard,
     targetOpponent,
     endTurn,
+    endMatchByResult,
+    setFrozen,
     applyRemoteAction,
     canPlay,
     cardById,

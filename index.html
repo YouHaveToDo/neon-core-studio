@@ -14,7 +14,12 @@
      are unreliable across browsers when the page is opened via file://,
      which this game must support). Symbol markup and ids are identical to
      assets/icons.svg. -->
-<svg style="display:none" aria-hidden="true">
+<!-- position:absolute/width:0/height:0/overflow:hidden, NOT display:none: display:none on
+     an ancestor stops Chrome/Safari from computing the objectBoundingBox that the
+     card-back symbol's <linearGradient>/<radialGradient> (added for plan.md 4.7) need, so
+     <use href="#card-back"> would otherwise render with no fill at all. Same fix/rationale
+     as assets/icons.svg and assets/mockups/screen-battle-pvp.html. -->
+<svg style="position:absolute; width:0; height:0; overflow:hidden" aria-hidden="true">
   <symbol id="icon-sword" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
     <path d="M14.5 3.5L20.5 9.5L11 19L7 20L8 16L17.5 6.5" />
     <path d="M4 20L7.5 16.5" />
@@ -69,6 +74,76 @@
   <symbol id="icon-char-boss" viewBox="0 0 100 100" fill="currentColor" fill-rule="evenodd">
     <path d="M50 2 L58 14 L66 6 L70 22 L80 40 L92 96 L78 86 L64 96 L50 88 L36 96 L22 86 L8 96 L20 40 L30 22 L34 6 L42 14 Z
              M42 30 L58 30 L58 38 L42 38 Z" />
+  </symbol>
+
+  <!-- Generic opponent bust, rev.4 (live asset — plan.md 4.7/4.9, spec §7.2/§9,
+       art-direction.md §8.5). Lifted verbatim from assets/icons.svg -- see that
+       file for the rev.2/rev.3 history and full rationale. Three hairline
+       variants sharing one body/head shape; js/match.js picks one per match
+       (cosmetic only, seeded from the room code, no gameplay effect). -->
+  <defs>
+    <path id="opp4-body" d="M42 38 C36 40 22 44 14 58 C10 72 14 88 20 97 L80 97 C86 88 90 72 86 58 C78 44 64 40 58 38 C58 33 42 33 42 38 Z" />
+    <path id="opp4-body-shadow" d="M50 38 L58 38 C64 40 78 44 86 58 C90 72 86 88 80 97 L50 97 Z" />
+    <path id="opp4-head-shadow" d="M50 12 A14 14 0 0 1 50 40 A14 14 0 0 0 50 12 Z" />
+  </defs>
+  <symbol id="icon-char-opponent-a" viewBox="0 0 100 100">
+    <use href="#opp4-body" fill="#4a9bb0" />
+    <use href="#opp4-body-shadow" fill="#2d6376" />
+    <circle cx="50" cy="26" r="14" fill="#4a9bb0" />
+    <use href="#opp4-head-shadow" fill="#2d6376" />
+    <path d="M36 26 A14 14 0 0 1 64 26 C62 19 57 15 50 15 C43 15 38 19 36 26 Z" fill="#1c2a30" />
+  </symbol>
+  <symbol id="icon-char-opponent-b" viewBox="0 0 100 100">
+    <use href="#opp4-body" fill="#4a9bb0" />
+    <use href="#opp4-body-shadow" fill="#2d6376" />
+    <circle cx="50" cy="26" r="14" fill="#4a9bb0" />
+    <use href="#opp4-head-shadow" fill="#2d6376" />
+    <path d="M27 37 C23 23 32 10 50 10 C68 10 77 23 73 37 C72 41 66 43 61 41 C64 35 63 25 58 19 C53 14 47 14 42 19 C37 25 36 35 39 41 C34 43 28 41 27 37 Z" fill="#1c2a30" />
+  </symbol>
+  <symbol id="icon-char-opponent-c" viewBox="0 0 100 100">
+    <use href="#opp4-body" fill="#4a9bb0" />
+    <use href="#opp4-body-shadow" fill="#2d6376" />
+    <circle cx="50" cy="26" r="14" fill="#4a9bb0" />
+    <use href="#opp4-head-shadow" fill="#2d6376" />
+    <path d="M31 22 C24 29 21 44 24 60 C25 68 28 75 32 80 C34 77 35 72 34 68 C31 58 30 46 32 36 C33 31 35 27 38 22 Z" fill="#1c2a30" />
+    <path d="M69 22 C76 29 79 44 76 60 C75 68 72 75 68 80 C66 77 65 72 66 68 C69 58 70 46 68 36 C67 31 65 27 62 22 Z" fill="#1c2a30" />
+    <path d="M36 26 A14 14 0 0 1 64 26 C62 19 57 15 50 15 C43 15 38 19 36 26 Z" fill="#1c2a30" />
+  </symbol>
+
+  <!-- Card back (art-direction.md §3, spec §7.2, plan.md 4.9) -- lifted verbatim
+       from assets/icons.svg. 132x184 to match the live card frame exactly.
+       Used to render the opponent's hidden hand as a count-only card stack. -->
+  <symbol id="card-back" viewBox="0 0 132 184">
+    <defs>
+      <linearGradient id="cardback-bg" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#241a2c" />
+        <stop offset="1" stop-color="#1e1624" />
+      </linearGradient>
+      <radialGradient id="cardback-glow" cx="50%" cy="50%" r="50%">
+        <stop offset="0" stop-color="#3a2c46" />
+        <stop offset="1" stop-color="#1e1624" stop-opacity="0" />
+      </radialGradient>
+    </defs>
+    <rect x="0.75" y="0.75" width="130.5" height="182.5" rx="8" fill="url(#cardback-bg)" stroke="#d4af37" stroke-width="1.5" />
+    <rect x="8" y="8" width="116" height="168" rx="4" fill="none" stroke="rgba(242,233,216,0.16)" stroke-width="1" />
+    <circle cx="66" cy="92" r="36" fill="url(#cardback-glow)" />
+    <g stroke="#d4af37" stroke-opacity="0.28" stroke-width="1">
+      <line x1="66" y1="30" x2="66" y2="50" />
+      <line x1="66" y1="134" x2="66" y2="154" />
+      <line x1="20" y1="92" x2="40" y2="92" />
+      <line x1="92" y1="92" x2="112" y2="92" />
+      <line x1="34" y1="52" x2="47" y2="65" />
+      <line x1="98" y1="52" x2="85" y2="65" />
+      <line x1="34" y1="132" x2="47" y2="119" />
+      <line x1="98" y1="132" x2="85" y2="119" />
+    </g>
+    <g stroke="#d4af37" stroke-width="1.4" fill="none">
+      <rect x="16" y="20" width="9" height="9" transform="rotate(45 20.5 24.5)" />
+      <rect x="107" y="20" width="9" height="9" transform="rotate(45 111.5 24.5)" />
+      <rect x="16" y="155" width="9" height="9" transform="rotate(45 20.5 159.5)" />
+      <rect x="107" y="155" width="9" height="9" transform="rotate(45 111.5 159.5)" />
+    </g>
+    <path transform="translate(44.4,70.4) scale(1.8)" fill="#d4af37" d="M12 3C12 3 6 11 6 15.5C6 19 8.7 21 12 21C15.3 21 18 19 18 15.5C18 11 12 3 12 3Z" />
   </symbol>
 </svg>
 
@@ -241,38 +316,54 @@
   <section id="screen-battle" class="screen hidden">
     <div class="battle-grain"></div>
 
-    <!-- Opponent panel: functional placeholder for the online-pvp-plan.md
-         task 2.4 state-shape refactor (state.opponent is now a mirrored
-         player state, not a scripted enemy). Visual redesign is Phase 4.9
-         art debt (spec-online-pvp.md §9) — reuses existing generic
-         hp-bar/mana-gauge/pile-badge/vital components rather than the old
-         portrait/frame/intent-badge markup, which no longer applies to a
-         real player opponent. -->
-    <div class="enemy-area" id="opponent-area">
-      <div id="opponent-name" class="enemy-name"></div>
-      <div class="hp-bar-track enemy-hp">
+    <!-- Opponent panel (plan.md 4.7/4.9, spec §7.2/§9): real player, not a
+         scripted enemy -- generic circular portrait (rev.4 bust, cosmetic
+         variant picked per-match by js/match.js) + name, HP/block/mana all
+         public per spec §7.2, hand shown as a card-back stack + count only
+         (state.opponent's array contents are HIDDEN-sentinel, never real
+         card ids -- see js/state.js). #opponent-meta-row is also where
+         js/battle.js relocates the shared #turn-timer during the
+         opponent's turn (spec §7.3: timer always sits next to the active
+         player's own controls). -->
+    <div class="enemy-area opponent-panel" id="opponent-area">
+      <div class="opponent-identity">
+        <div class="opponent-portrait-wrap">
+          <div class="opponent-portrait-frame">
+            <svg class="opponent-portrait-silhouette" id="opponent-portrait-svg"><use href="#icon-char-opponent-a"></use></svg>
+          </div>
+        </div>
+        <span id="opponent-name" class="opponent-name"></span>
+      </div>
+      <div class="hp-bar-track enemy-hp mini-hp-bar">
         <div id="opponent-hp-fill" class="hp-bar-fill"></div>
         <span id="opponent-hp-text" class="hp-bar-text"></span>
       </div>
-      <div class="player-vitals">
+      <div class="opponent-meta-row" id="opponent-meta-row">
         <div id="opponent-block-wrap" class="vital hidden">
           <svg class="icon icon-block"><use href="#icon-shield"></use></svg>
           <span id="opponent-block-text"></span>
         </div>
-      </div>
-      <div id="opponent-mana-gauge" class="mana-gauge"></div>
-      <div class="pile-counters">
-        <div class="pile-badge" title="상대 뽑을 카드">
-          <span class="pile-label">Deck</span>
-          <span id="opponent-draw-count">0</span>
+        <div class="mana-block">
+          <span class="mana-caption">Mana</span>
+          <div id="opponent-mana-gauge" class="mana-gauge"></div>
         </div>
-        <div class="pile-badge" title="상대 버린 카드">
-          <span class="pile-label">Discard</span>
-          <span id="opponent-discard-count">0</span>
+        <div class="hand-count-badge">
+          <div class="hand-count-stack">
+            <svg class="card-back-icon"><use href="#card-back"></use></svg>
+            <svg class="card-back-icon"><use href="#card-back"></use></svg>
+            <svg class="card-back-icon"><use href="#card-back"></use></svg>
+          </div>
+          <span id="opponent-hand-count" class="hand-count-text"></span>
         </div>
-        <div class="pile-badge" title="상대 손패 매수">
-          <span class="pile-label">Hand</span>
-          <span id="opponent-hand-count">0</span>
+        <div class="pile-counters">
+          <div class="pile-badge" title="상대 뽑을 카드">
+            <span class="pile-label">Deck</span>
+            <span id="opponent-draw-count">0</span>
+          </div>
+          <div class="pile-badge" title="상대 버린 카드">
+            <span class="pile-label">Discard</span>
+            <span id="opponent-discard-count">0</span>
+          </div>
         </div>
       </div>
     </div>
@@ -308,7 +399,32 @@
 
     <div class="hand-row">
       <div id="hand-area" class="hand-area"></div>
-      <button id="btn-end-turn" class="btn btn-end-turn">End Turn</button>
+      <!-- #turn-timer starts here (my-turn position, next to End Turn) and
+           is relocated into #opponent-meta-row by js/battle.js whenever
+           state.turn is 'opponent' -- spec §7.3: one shared countdown that
+           always sits beside the currently-active player's own controls. -->
+      <div id="end-turn-col" class="end-turn-col">
+        <div id="turn-timer" class="turn-timer">
+          <span class="timer-label" id="turn-timer-label">Your Turn</span>
+          <span id="turn-timer-value">24</span>
+        </div>
+        <button id="btn-end-turn" class="btn btn-end-turn">End Turn</button>
+      </div>
+    </div>
+
+    <!-- Disconnect overlay (plan.md 4.7, spec §8.2). Fully covers the battle
+         board and blocks input (state.frozen, js/state.js) while the
+         opponent is disconnected -- js/battle.js owns show/hide + the 45s
+         countdown text + the 10s claim-forfeit floor. -->
+    <div id="disconnect-overlay" class="disconnect-overlay-layer hidden">
+      <div class="disconnect-banner">
+        <svg class="icon icon-warning"><use href="#icon-warning"></use></svg>
+        <h3>상대방의 연결이 끊겼습니다</h3>
+        <p>재접속을 기다리는 중...</p>
+        <div id="disconnect-timer" class="disconnect-timer"></div>
+        <button id="btn-claim-forfeit" class="btn btn-primary btn-claim-forfeit" disabled>기권승 처리하기</button>
+        <p id="claim-forfeit-hint" class="claim-hint"></p>
+      </div>
     </div>
   </section>
 
@@ -413,23 +529,36 @@
        structure (reward-card-pick, rest-heal) entirely — a PvP match is a
        standalone single battle. See online-pvp-plan.md task 2.4. -->
 
-  <!-- Victory screen -->
+  <!-- Victory screen (plan.md 4.8, spec §6.4): #victory-title carries the
+       two "win" text variants ("승리!" / "승리! (상대방 접속 종료)"), set by
+       js/ui.js from state.matchResult. #victory-subtitle shows the
+       opponent's display name (not spec'd copy, just a small orientation
+       aid replacing the old dungeon-flavor line, which no longer applies to
+       a PvP match). -->
   <section id="screen-victory" class="screen hidden">
     <div class="overlay-panel">
       <svg class="icon icon-crown-big"><use href="#icon-crown"></use></svg>
-      <h2>승리</h2>
-      <p class="subtitle">폐허의 심판관을 물리치고 던전을 정복했다.</p>
-      <button id="btn-restart-victory" class="btn btn-primary">New Run</button>
+      <h2 id="victory-title">승리!</h2>
+      <p id="victory-subtitle" class="subtitle"></p>
+      <div class="match-end-actions">
+        <button id="btn-restart-victory" class="btn btn-primary">다시 플레이</button>
+        <button id="btn-mainmenu-victory" class="btn btn-secondary">메인 메뉴</button>
+      </div>
     </div>
   </section>
 
-  <!-- Defeat screen -->
+  <!-- Defeat screen (plan.md 4.8, spec §6.4) -- only one text variant
+       ("패배"), so the title stays static; subtitle shows opponent name
+       same as the victory screen above. -->
   <section id="screen-defeat" class="screen hidden">
     <div class="overlay-panel">
       <svg class="icon icon-skull-big"><use href="#icon-skull"></use></svg>
       <h2>패배</h2>
-      <p class="subtitle">장부가 여기서 닫혔다.</p>
-      <button id="btn-restart-defeat" class="btn btn-primary">New Run</button>
+      <p id="defeat-subtitle" class="subtitle"></p>
+      <div class="match-end-actions">
+        <button id="btn-restart-defeat" class="btn btn-primary">다시 플레이</button>
+        <button id="btn-mainmenu-defeat" class="btn btn-secondary">메인 메뉴</button>
+      </div>
     </div>
   </section>
 
@@ -442,6 +571,7 @@
 <script src="js/screens.js"></script>
 <script src="js/deck.js"></script>
 <script src="js/match.js"></script>
+<script src="js/battle.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/auth.js"></script>
 <script src="js/main.js"></script>

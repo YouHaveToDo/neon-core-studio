@@ -6,9 +6,15 @@
  * relay through js/ws.js (Net) and, once a match is confirmed to start,
  * hands off to js/state.js's AL.startMatch() -- this file owns everything
  * BEFORE the battle screen exists (deck choice, room code, coin flip); it
- * does not touch AL.state directly beyond that one handoff call, and does
- * not implement any in-battle networking (applyRemoteAction wiring is
- * Phase 4.7, explicitly out of scope here).
+ * does not touch AL.state directly beyond that one handoff call. Everything
+ * that happens DURING the match (in-battle action relay, the 24s timer,
+ * disconnect/forfeit, match-end) is js/battle.js's job (plan.md 4.7/4.8) --
+ * handleTurnStarted() below calls Battle.start() as its very last step, the
+ * exact moment ownership of the live match passes from this file to that one.
+ *
+ * "다시 플레이" (spec §6.4's match-end screen) re-enters this same module via
+ * playAgain(), reusing the account this file already holds from the match
+ * that just ended.
  *
  * ---- Coin-flip / first-player determination (spec §6.3 step 1) ----
  * protocol.js's start_match doc comment states the coin flip itself, and
@@ -460,7 +466,30 @@ const Match = (() => {
       deck: deckIds,
       isFirstPlayer,
       opponentName: opponentDisplayName,
+      // Cosmetic-only opponent bust variant (art-direction.md §8.5 rev.4) --
+      // seeded from the room code (known identically by both clients, same
+      // source hashRoomCode() already uses for the first-player coin flip)
+      // purely so a match "feels" consistent, not because it needs to be
+      // deterministic for any gameplay reason.
+      opponentPortrait: ['a', 'b', 'c'][Math.abs(hashRoomCode(roomCode)) % 3],
     });
+
+    // Hand off to js/battle.js (plan.md 4.7) for everything that happens
+    // DURING the match: peer-to-peer action relay, the 24s timer, disconnect/
+    // forfeit, match-end. msg.deadline is turn 1's server-stamped deadline --
+    // see Battle.start()'s doc comment for why it's passed explicitly here
+    // rather than relying on Battle's own turn_started listener to catch
+    // this exact first message.
+    Battle.start(account.id, msg.deadline);
+  }
+
+  // "다시 플레이" (spec §6.4): return to deck-select to start a genuinely
+  // fresh match, reusing the account this module already has from the match
+  // that just ended (showDeckSelect() stores it) rather than needing the
+  // caller to pass it again.
+  function playAgain() {
+    if (!account) return;
+    showDeckSelect(account);
   }
 
   function init() {
@@ -482,5 +511,5 @@ const Match = (() => {
     el.btnLobbyJoinBack.addEventListener('click', onBackFromSubPanel);
   }
 
-  return { init, showDeckSelect };
+  return { init, showDeckSelect, playAgain };
 })();

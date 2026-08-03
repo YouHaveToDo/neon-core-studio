@@ -1,15 +1,16 @@
 /* ARCANE LEDGER — rendering. Reads AL.state and updates the DOM; never
  * mutates game state directly (that's state.js's job via user actions).
  *
- * ---- PvP restructure note (online-pvp-plan.md task 2.4) ----
- * The opponent panel below is a functional placeholder only — it reads the
- * new mirrored `state.opponent` shape (HP/mana/block/deck+discard/hand
- * counts + display name) instead of the old scripted-enemy portrait/intent
- * layout, which no longer applies to a real player opponent (spec-online-
- * pvp.md §7.2, §9). The actual visual redesign (opponent player-panel
- * layout, card-back art) is explicitly flagged as art debt for Phase 4.9 —
- * this task (2.4) only had to keep the state-reading side from crashing
- * against the new shape, not produce final visuals.
+ * ---- PvP restructure note (online-pvp-plan.md tasks 2.4, 4.7/4.9) ----
+ * The opponent panel reads the mirrored `state.opponent` shape (HP/mana/
+ * block/deck+discard/hand counts + display name), rendered against the real
+ * Phase 4.9 opponent-panel visuals (portrait bust, mini HP bar, card-back
+ * hand-count stack — assets/mockups/screen-battle-pvp.html, lifted into
+ * css/pvp-components.css). What THIS file still does not own: the 24s turn
+ * timer (server-stamped deadline) and the disconnect overlay/claim-forfeit
+ * button both live in js/battle.js instead, since their state comes from the
+ * relay, not from AL.state — this file only tells them (implicitly, via
+ * AL.state.turn) which DOM slot the shared timer belongs in right now.
  */
 
 const UI = (() => {
@@ -33,6 +34,7 @@ const UI = (() => {
 
     el.opponentArea = document.getElementById('opponent-area');
     el.opponentName = document.getElementById('opponent-name');
+    el.opponentPortraitSvg = document.getElementById('opponent-portrait-svg');
     el.opponentHpFill = document.getElementById('opponent-hp-fill');
     el.opponentHpText = document.getElementById('opponent-hp-text');
     el.opponentBlockWrap = document.getElementById('opponent-block-wrap');
@@ -53,6 +55,12 @@ const UI = (() => {
 
     el.handArea = document.getElementById('hand-area');
     el.btnEndTurn = document.getElementById('btn-end-turn');
+
+    // Match-end (plan.md 4.8, spec §6.4) -- text variants only; the buttons
+    // themselves are wired in js/main.js.
+    el.victoryTitle = document.getElementById('victory-title');
+    el.victorySubtitle = document.getElementById('victory-subtitle');
+    el.defeatSubtitle = document.getElementById('defeat-subtitle');
   }
 
   // `name` is one of AL.state.screen's values ('start'|'howto'|'battle'|
@@ -88,12 +96,33 @@ const UI = (() => {
 
     if (state.screen === 'howto') renderHowto(state);
     if (state.screen === 'battle') renderBattle(state);
+    if (state.screen === 'victory' || state.screen === 'defeat') renderMatchEnd(state);
+  }
+
+  // ---- Match end (plan.md 4.8, spec §6.4) --------------------------------
+  // Text-only: js/state.js's matchResult drives which of the 3 headline
+  // variants shows, js/battle.js/js/main.js own the button behavior.
+  function renderMatchEnd(state) {
+    const oppName = state.opponent && state.opponent.name;
+    const subtitle = oppName ? `상대: ${oppName}` : '';
+    if (state.screen === 'victory') {
+      el.victoryTitle.textContent = state.matchResult === 'win_forfeit'
+        ? '승리! (상대방 접속 종료)'
+        : '승리!';
+      el.victorySubtitle.textContent = subtitle;
+    } else {
+      el.defeatSubtitle.textContent = subtitle;
+    }
   }
 
   // ---- Battle -------------------------------------------------------
   function renderBattle(state) {
     const opp = state.opponent;
     el.opponentName.textContent = opp.name || '상대';
+    if (el.opponentPortraitSvg) {
+      const variant = opp.portraitVariant || 'a';
+      el.opponentPortraitSvg.innerHTML = `<use href="#icon-char-opponent-${variant}"></use>`;
+    }
 
     const hpPct = Math.max(0, (opp.hp / opp.maxHp) * 100);
     el.opponentHpFill.style.width = hpPct + '%';
@@ -109,7 +138,7 @@ const UI = (() => {
     renderMana(el.opponentManaGauge, opp.mana, opp.maxMana);
     el.opponentDrawCount.textContent = opp.drawPile.length;
     el.opponentDiscardCount.textContent = opp.discardPile.length;
-    el.opponentHandCount.textContent = opp.hand.length;
+    el.opponentHandCount.textContent = `${opp.hand.length}장`;
 
     el.playerHpText.textContent = `${state.player.hp} / ${state.player.maxHp}`;
     if (state.player.block > 0) {
@@ -125,7 +154,7 @@ const UI = (() => {
 
     renderHand(state);
 
-    el.btnEndTurn.disabled = state.turn !== 'player' || !!state.turnBusy;
+    el.btnEndTurn.disabled = state.turn !== 'player' || !!state.turnBusy || !!state.frozen;
   }
 
   function renderMana(gaugeEl, mana, maxMana) {
@@ -239,7 +268,7 @@ const UI = (() => {
 
   function onOpponentClick() {
     const state = AL.state;
-    if (state.selected === null || state.turn !== 'player' || state.turnBusy) return;
+    if (state.selected === null || state.turn !== 'player' || state.turnBusy || state.frozen) return;
     const node = el.handArea.querySelector(`[data-index="${state.selected}"]`);
     if (node) { node.classList.remove('card-draw-in'); node.classList.add('playing'); }
     setTimeout(() => AL.targetOpponent(), 240);

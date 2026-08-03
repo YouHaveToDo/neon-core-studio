@@ -136,29 +136,30 @@ const App = (() => {
 document.addEventListener('DOMContentLoaded', () => {
   UI.init();
   Deck.init();
+  Battle.init();
   App.init();
 
   // The "?" button only appears mid-battle (ui.js hides it otherwise) --
   // opens How to Play via AL's own state machine so it can return to
   // whatever battle screen was behind it, per docs/design/onboarding.md.
   document.getElementById('btn-howto').addEventListener('click', () => AL.openHowto());
-  document.getElementById('btn-end-turn').addEventListener('click', () => AL.endTurn());
-  document.getElementById('btn-restart-victory').addEventListener('click', () => AL.startMatch());
-  document.getElementById('btn-restart-defeat').addEventListener('click', () => AL.startMatch());
+  // #btn-end-turn's real click handler (AL.endTurn() + the relay's end_turn
+  // message) is wired inside Battle.init() instead -- js/battle.js is the
+  // module that actually knows when a manual end-turn also needs a network
+  // side effect (plan.md 4.7, spec §7.3).
 
-  // NOTE (updated at plan.md task 4.6): the real match flow now exists --
-  // 메인 메뉴's 플레이 button (wired in App.init() above) goes through
-  // js/match.js's deck-select -> lobby -> relay-driven coin flip, which
-  // calls this exact AL.startMatch() with a real deck/isFirstPlayer/
-  // opponentName once both players are in a room (spec §6.1-§6.3). The
-  // no-args call still wired to the victory/defeat "New Run" buttons just
-  // above is untouched, though: it's the original TEMPORARY local-coin-flip
-  // smoke-test path (see js/state.js's startMatch doc comment), and match-
-  // end/"다시 플레이" (spec §6.4, which should return to deck-select, not
-  // silently start a new local-only match) is Phase 4.8 -- explicitly out of
-  // this session's scope (4.4-4.6 only). Still reachable from a devtools
-  // console (`AL.startMatch()`) for engine-only testing independent of the
-  // network flow.
+  // Match-end buttons (plan.md 4.8, spec §6.4): "다시 플레이" returns to the
+  // deck-select screen to start a genuinely fresh match (§6.1) -- spec never
+  // asks for a "rematch this exact opponent" shortcut, just "다시 플레이 →
+  // 덱 선택 화면으로 복귀". "메인 메뉴" returns to the post-login landing
+  // screen. Both first reset js/battle.js's per-match timers/overlay state
+  // so nothing from the just-finished match leaks into the next one.
+  function playAgain() { Battle.reset(); Match.playAgain(); }
+  function backToMainMenu() { Battle.reset(); App.returnToMainMenu(); }
+  document.getElementById('btn-restart-victory').addEventListener('click', playAgain);
+  document.getElementById('btn-restart-defeat').addEventListener('click', playAgain);
+  document.getElementById('btn-mainmenu-victory').addEventListener('click', backToMainMenu);
+  document.getElementById('btn-mainmenu-defeat').addEventListener('click', backToMainMenu);
 
   // Initial paint of AL's own screens (state.screen defaults to 'start',
   // which no longer has a matching element -- this just hides every
