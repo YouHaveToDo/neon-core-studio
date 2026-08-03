@@ -141,11 +141,14 @@ const AL = (() => {
   // opts:
   //   deck           — this client's own card-id list (defaults to
   //                    STARTER_DECK until Phase 3's deck slots exist)
-  //   isFirstPlayer  — result of the coin flip (spec §6.3 step 1). Left
-  //                    undefined here defaults to a local coin flip, which
-  //                    is a TEMPORARY stand-in for solo smoke-testing only —
-  //                    Phase 4.6 replaces this with the relay's authoritative
-  //                    result once two real clients exist.
+  //   isFirstPlayer  — result of the coin flip (spec §6.3 step 1). Since
+  //                    Phase 4.6, js/match.js always passes this explicitly
+  //                    (derived from the relay's TURN_STARTED broadcast --
+  //                    never locally guessed, see js/match.js's file header
+  //                    for why). Left undefined here still falls back to a
+  //                    local Math.random() flip, which now only matters for
+  //                    the no-args devtools/"New Run" smoke-test path (see
+  //                    js/main.js).
   //   opponentName   — display name to show for the opponent (spec §7.2);
   //                    left null until the lobby (Phase 4.5) supplies it.
   //   opponentDeckSize — how many cards are in the opponent's deck, so the

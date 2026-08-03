@@ -52,6 +52,12 @@
     <line x1="12" y1="9.5" x2="12" y2="14.5" />
     <circle cx="12" cy="17.3" r="0.9" fill="currentColor" stroke="none" />
   </symbol>
+  <!-- Lobby room-code copy icon (plan.md 4.5, spec §6.2), lifted verbatim
+       from assets/mockups/screen-lobby.html's inline sprite. -->
+  <symbol id="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="9" y="9" width="11" height="11" rx="1.5" />
+    <path d="M6 15H5C4.4 15 4 14.6 4 14V5C4 4.4 4.4 4 5 4H14C14.6 4 15 4.4 15 5V6" />
+  </symbol>
   <symbol id="icon-char-sentinel" viewBox="0 0 100 100" fill="currentColor" fill-rule="evenodd">
     <path d="M50 6 L64 16 L68 40 L56 48 L76 56 L88 96 L12 96 L24 56 L44 48 L32 40 L36 16 Z
              M42 24 L58 24 L58 32 L42 32 Z" />
@@ -154,9 +160,12 @@
 
   <!-- Main menu (plan.md 4.3, spec screen-flow §3). Post-login landing
        screen, replaces the old single "Begin Run" start screen entirely.
-       전적/플레이 are disabled "곧 제공" stub buttons this session -- 전적 is
-       Phase 5, 플레이's real target (deck-select -> lobby, spec §6.1-§6.2)
-       is Phase 4.4+, neither built yet (see js/main.js report). -->
+       전적 remains a disabled "곧 제공" stub (Phase 5, not in scope). 플레이
+       is now real (plan.md 4.4-4.6, spec §6.1) -- js/main.js's
+       refreshPlayGate() toggles its disabled state + the hint block below
+       based on whether the account has at least one valid (20-30 card) deck
+       slot, per spec §6.1's explicit main-menu-level gating requirement
+       (not just gating inside the deck-select screen). -->
   <section id="screen-main-menu" class="screen hidden">
     <div class="start-panel main-menu-panel">
       <h1>ARCANE LEDGER</h1>
@@ -172,8 +181,12 @@
       <div class="main-menu-actions">
         <button id="btn-menu-deck" class="btn btn-primary">덱 관리</button>
         <button id="btn-menu-history" class="btn btn-secondary btn-menu-soon" disabled title="곧 제공">전적 <span class="menu-soon-badge">곧 제공</span></button>
-        <button id="btn-menu-play" class="btn btn-secondary btn-menu-soon" disabled title="곧 제공">플레이 <span class="menu-soon-badge">곧 제공</span></button>
+        <button id="btn-menu-play" class="btn btn-primary" disabled>플레이</button>
       </div>
+      <p id="play-gate-hint" class="play-gate-hint hidden">
+        매치를 시작하려면 유효한 덱(20~30장)이 하나 이상 있어야 합니다
+        <button id="btn-play-gate-deck" class="btn btn-secondary">덱 관리로 이동</button>
+      </p>
     </div>
   </section>
 
@@ -336,6 +349,61 @@
     </div>
   </section>
 
+  <!-- Deck-select-before-lobby screen (plan.md 4.4, spec §6.1). Reuses the
+       same .deck-slot-tile look as 덱 관리's slot list (css/pvp-components.css)
+       -- only valid (20-30 card) slots are clickable; invalid/empty slots
+       render disabled with the same "미완성" badge. -->
+  <section id="screen-deck-select" class="screen hidden">
+    <div class="deck-management-page">
+      <div class="deck-management-header">
+        <button id="btn-deck-select-back" class="btn btn-secondary">← 뒤로</button>
+        <h2>덱 선택</h2>
+      </div>
+      <p class="subtitle" style="text-align:left; margin-bottom:14px;">매치에 사용할 덱을 선택하세요 (유효한 덱만 선택할 수 있습니다)</p>
+      <div id="deck-select-status" class="deck-status hidden"></div>
+      <div id="deck-select-list" class="deck-slots"></div>
+    </div>
+  </section>
+
+  <!-- Lobby: create/join room (plan.md 4.5, spec §6.2). Three sibling
+       .overlay-panel sub-states (select / create / join), same
+       show-one-hide-rest pattern as every other screen here -- visuals
+       lifted from assets/mockups/screen-lobby.html / pvp-components.css. -->
+  <section id="screen-lobby" class="screen hidden">
+    <div id="lobby-panel-select" class="overlay-panel lobby-panel">
+      <h2>매치 참가</h2>
+      <p class="subtitle">방을 만들거나 코드로 참가하세요</p>
+      <div class="lobby-select-actions">
+        <button id="btn-lobby-create" class="btn btn-primary">방 만들기</button>
+        <button id="btn-lobby-show-join" class="btn btn-secondary">코드로 참가하기</button>
+      </div>
+      <button id="btn-lobby-back-to-deck" class="btn btn-secondary lobby-back-link">← 덱 선택으로</button>
+    </div>
+
+    <div id="lobby-panel-create" class="overlay-panel lobby-panel hidden">
+      <h2>방 만들기</h2>
+      <p class="subtitle" style="margin-bottom:6px;">이 코드를 상대에게 공유하세요</p>
+      <div class="lobby-code-box">
+        <span id="lobby-code" class="lobby-code"></span>
+        <button id="btn-lobby-copy" class="btn-copy" title="코드 복사"><svg class="icon"><use href="#icon-copy"></use></svg></button>
+      </div>
+      <div id="lobby-create-status" class="lobby-waiting"><span class="spinner"></span>상대를 기다리는 중...</div>
+      <button id="btn-lobby-create-back" class="btn btn-secondary lobby-back-link">← 뒤로</button>
+    </div>
+
+    <div id="lobby-panel-join" class="overlay-panel lobby-panel hidden">
+      <h2>코드로 참가하기</h2>
+      <p class="subtitle" style="margin-bottom:6px;">6자리 방 코드를 입력하세요</p>
+      <div id="lobby-join-form" class="lobby-join-form">
+        <input type="text" id="lobby-join-input" maxlength="6" placeholder="______" autocomplete="off" />
+        <button id="btn-lobby-join-submit" class="btn btn-primary" disabled>참가</button>
+      </div>
+      <p id="lobby-join-error" class="lobby-inline-error hidden"></p>
+      <div id="lobby-join-status" class="lobby-waiting hidden"><span class="spinner"></span>연결하는 중...</div>
+      <button id="btn-lobby-join-back" class="btn btn-secondary lobby-back-link">← 뒤로</button>
+    </div>
+  </section>
+
   <!-- Shared modal (new-deck-name prompt, delete confirm — spec §5.3/§5.4) -->
   <div id="modal-root" class="modal-backdrop hidden">
     <div id="modal-body" class="overlay-panel" style="max-width:360px;"></div>
@@ -370,8 +438,10 @@
 <script src="js/data.js"></script>
 <script src="js/state.js"></script>
 <script src="js/api.js"></script>
+<script src="js/ws.js"></script>
 <script src="js/screens.js"></script>
 <script src="js/deck.js"></script>
+<script src="js/match.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/auth.js"></script>
 <script src="js/main.js"></script>

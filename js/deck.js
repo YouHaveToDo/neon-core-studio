@@ -462,7 +462,7 @@ const Deck = (() => {
 
   function init() {
     cache();
-    el.btnSlotsBack.addEventListener('click', () => Screens.show('screen-main-menu'));
+    el.btnSlotsBack.addEventListener('click', () => App.returnToMainMenu());
     el.btnEditorDone.addEventListener('click', onDone);
     el.editorNameInput.addEventListener('input', onNameInput);
     el.editorNameInput.addEventListener('blur', onNameBlur);

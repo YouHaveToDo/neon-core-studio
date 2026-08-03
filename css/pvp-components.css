@@ -120,6 +120,48 @@
 .btn:disabled { opacity: 0.4; cursor: default; pointer-events: none; }
 .btn:disabled:hover { border-color: var(--line); }
 
+/* ==================================================== 4.4 deck select
+   (plan.md 4.4, spec §6.1) -- reuses .deck-slot-tile (above) as the base,
+   selection-only variant: no edit/delete actions, invalid/empty slots
+   render inert instead of clickable. */
+.deck-select-tile.selectable { cursor: pointer; transition: border-color 0.12s ease, transform 0.12s ease; }
+.deck-select-tile.selectable:hover { border-color: var(--gold); transform: translateY(-3px); }
+.deck-select-tile.invalid { opacity: 0.5; }
+
+/* ======================================================= 4.4 main menu
+   play-gate hint (spec §6.1: "플레이" disabled at the main-menu level with
+   zero valid decks). No mockup source, same programmer-authored-from-
+   tokens call as the main-menu rules above. */
+.play-gate-hint { margin-top: 14px; font-size: 12px; color: var(--crimson); display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.play-gate-hint .btn { font-size: 12px; padding: 7px 14px; }
+
+/* ==================================================== 4.10 lobby / rooms
+   Lifted from assets/mockups/pvp-components.css's same-named section
+   (spec §6.2 visuals) -- only the create/join/select subset this session's
+   screen-lobby actually uses; the disconnect-overlay section from that same
+   mockup block belongs to a later phase (4.7/6.4) and isn't pulled in yet,
+   per this file's own "don't ship dead CSS ahead of the screens that use
+   it" policy stated at the top. */
+
+.lobby-panel { max-width: 420px; text-align: center; }
+.lobby-select-actions { display: flex; flex-direction: column; gap: 10px; margin: 6px 0 18px; }
+.lobby-back-link { margin-top: 4px; }
+.lobby-code-box { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 14px 0 18px; }
+.lobby-code { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 30px; letter-spacing: 0.22em; color: var(--gold); background: var(--bg-inset); border: 1px solid var(--line); border-radius: 10px; padding: 14px 20px; box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.5); }
+.btn-copy { width: 38px; height: 38px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg-inset); color: var(--ink-dim); display: flex; align-items: center; justify-content: center; flex-shrink: 0; padding: 0; }
+.btn-copy:hover { border-color: var(--gold); color: var(--ink); }
+.btn-copy .icon { width: 16px; height: 16px; }
+.btn-copy.copied { border-color: var(--gold); color: var(--gold); }
+.lobby-waiting { display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--ink-dim); font-size: 13px; margin-bottom: 6px; }
+.spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--gold); animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+.lobby-join-form { display: flex; gap: 8px; margin-top: 6px; }
+.lobby-join-form input { flex: 1; text-align: center; letter-spacing: 0.18em; text-transform: uppercase; background: var(--bg-inset); border: 1px solid var(--line); border-radius: 7px; color: var(--ink); font-family: var(--font-mono); font-size: 16px; padding: 10px 0; }
+.lobby-inline-error { font-size: 11.5px; color: var(--crimson); margin-top: 8px; }
+.opponent-found { display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--ink); font-family: var(--font-serif); font-size: 14px; margin-top: 10px; }
+.opponent-found .icon { width: 14px; height: 14px; color: var(--gold); }
+
 /* ======================================================= 4.3 main menu
    No pixel-artist mockup exists for this screen (plan.md never assigned
    one) -- built from the same tokens/components as everything else here

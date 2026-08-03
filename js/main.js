@@ -21,13 +21,43 @@ const App = (() => {
     el.menuDisplayName = document.getElementById('main-menu-display-name');
     el.btnLogout = document.getElementById('btn-logout');
     el.btnMenuDeck = document.getElementById('btn-menu-deck');
+    el.btnMenuPlay = document.getElementById('btn-menu-play');
+    el.playGateHint = document.getElementById('play-gate-hint');
+    el.btnPlayGateDeck = document.getElementById('btn-play-gate-deck');
     el.btnHowtoClose = document.getElementById('btn-howto-close');
+  }
+
+  // spec §6.1: "플레이" is disabled at the MAIN MENU level (not just gated
+  // inside the deck-select screen) if the account has zero valid (20-30
+  // card) deck slots -- refreshed every time the main menu is (re)shown,
+  // since deck edits made in the meantime (js/deck.js) can flip this.
+  async function refreshPlayGate() {
+    try {
+      const data = await API.decks.list();
+      const hasValidDeck = data.slots.some((deck) => deck && deck.valid);
+      el.btnMenuPlay.disabled = !hasValidDeck;
+      el.playGateHint.classList.toggle('hidden', hasValidDeck);
+    } catch (err) {
+      // Network/session hiccup -- default to disabled rather than letting a
+      // player into a flow that will just fail downstream.
+      el.btnMenuPlay.disabled = true;
+      el.playGateHint.classList.add('hidden');
+    }
   }
 
   function showMainMenu(acct) {
     account = acct;
     el.menuDisplayName.textContent = acct.displayName;
     Screens.show('screen-main-menu');
+    refreshPlayGate();
+  }
+
+  // Shared re-entry point for every "메인 메뉴로 돌아가기" action elsewhere in
+  // the app (deck management's 뒤로, match flow's 뒤로) so the play-gate
+  // check above always reruns rather than only firing right after login.
+  function returnToMainMenu() {
+    Screens.show('screen-main-menu');
+    refreshPlayGate();
   }
 
   async function handleLogout() {
@@ -86,20 +116,21 @@ const App = (() => {
   function init() {
     cache();
     Auth.init({ onAuthenticated: showMainMenu, onShowHowto: openHowtoFromLogin });
+    Match.init();
     el.btnLogout.addEventListener('click', handleLogout);
     el.btnMenuDeck.addEventListener('click', () => Deck.showSlots());
-    // 전적 (#btn-menu-history) and 플레이 (#btn-menu-play) are disabled
-    // "곧 제공" stub buttons in index.html for this session -- 전적 is
-    // Phase 5 (match history screen), 플레이's real target (deck-select ->
-    // lobby, spec §6.1-§6.2) is Phase 4.4+. Both are disabled rather than
-    // routed to a placeholder screen (simpler, and the inline "곧 제공"
-    // badge + title tooltip already makes the "not yet" state visible
-    // rather than a silent dead click) -- nothing to wire for either.
+    // 플레이 (plan.md 4.4-4.6, spec §6.1-§6.3) is now real: deck-select ->
+    // lobby -> match start, js/match.js. Disabled state + hint text is
+    // driven by refreshPlayGate() above, not a static "곧 제공" stub anymore.
+    el.btnMenuPlay.addEventListener('click', () => Match.showDeckSelect(account));
+    el.btnPlayGateDeck.addEventListener('click', () => Deck.showSlots());
+    // 전적 (#btn-menu-history) is still a disabled "곧 제공" stub -- Phase 5
+    // (match history screen), not in this session's scope.
     el.btnHowtoClose.addEventListener('click', closeHowto);
     checkSession();
   }
 
-  return { init };
+  return { init, returnToMainMenu };
 })();
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -115,16 +146,19 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-restart-victory').addEventListener('click', () => AL.startMatch());
   document.getElementById('btn-restart-defeat').addEventListener('click', () => AL.startMatch());
 
-  // NOTE (online-pvp-plan.md task 2.4): AL.startMatch() with no args is a
-  // TEMPORARY local-battle-engine smoke-test path only (local coin flip,
-  // STARTER_DECK for both sides -- see js/state.js's startMatch doc
-  // comment). It is intentionally not wired to any menu button as of this
-  // task: Phase 4.3 replaced the old single "Begin Run" entry point with
-  // the real main menu above, and the real match flow (deck select -> lobby
-  // -> battle, spec §6.1-§6.3) is Phase 4.4-4.7, not yet built. Still
-  // reachable from a devtools console (`AL.startMatch()`) for engine-only
-  // testing until that flow exists -- the victory/defeat restart buttons
-  // wired just above call back into it for that same reason.
+  // NOTE (updated at plan.md task 4.6): the real match flow now exists --
+  // 메인 메뉴's 플레이 button (wired in App.init() above) goes through
+  // js/match.js's deck-select -> lobby -> relay-driven coin flip, which
+  // calls this exact AL.startMatch() with a real deck/isFirstPlayer/
+  // opponentName once both players are in a room (spec §6.1-§6.3). The
+  // no-args call still wired to the victory/defeat "New Run" buttons just
+  // above is untouched, though: it's the original TEMPORARY local-coin-flip
+  // smoke-test path (see js/state.js's startMatch doc comment), and match-
+  // end/"다시 플레이" (spec §6.4, which should return to deck-select, not
+  // silently start a new local-only match) is Phase 4.8 -- explicitly out of
+  // this session's scope (4.4-4.6 only). Still reachable from a devtools
+  // console (`AL.startMatch()`) for engine-only testing independent of the
+  // network flow.
 
   // Initial paint of AL's own screens (state.screen defaults to 'start',
   // which no longer has a matching element -- this just hides every
