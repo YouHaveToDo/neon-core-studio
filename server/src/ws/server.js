@@ -1,7 +1,7 @@
 /**
- * WS relay server (plan.md Phase 2.1/2.3). Attaches to the same HTTP server
- * as the Express app (single Render service, single port) rather than
- * listening on a separate port.
+ * WS relay server (plan.md Phase 2.1/2.3/2.5/2.6/2.7). Attaches to the same
+ * HTTP server as the Express app (single Render service, single port)
+ * rather than listening on a separate port.
  *
  * Auth (2.3): the session token lives in an HttpOnly cookie (set by the
  * Phase 1 /api/auth endpoints), which the browser automatically attaches to
@@ -13,18 +13,29 @@
  * validated session, once, at connection time, and never taken from client
  * input afterward.
  *
- * Known gap (documented, not fixed here): no ping/pong heartbeat, so a hard
- * network drop without a clean close frame (e.g. wifi cut, laptop closed)
- * may not fire the 'close' event promptly. Standard `ws` heartbeat pattern
- * should be added when plan.md 2.7 (45s disconnect grace timer) is built --
- * accurate disconnect *timing* needs it; this phase only needs disconnect
- * *detection*, which does work whenever the socket does close.
+ * Heartbeat (closes a gap flagged by the earlier session): a hard network
+ * drop (wifi cut, laptop closed) doesn't always fire a clean WS close frame
+ * promptly, which would make the 2.7 disconnect-grace timing inaccurate --
+ * the server might not even notice the disconnect until long after it
+ * actually happened. Standard `ws` ping/pong liveness check below: every
+ * WS_HEARTBEAT_INTERVAL_MS, ping every client and terminate() any socket
+ * that didn't pong since the last ping. terminate() fires a real 'close'
+ * event, so this feeds into the exact same handleClose() path as a clean
+ * disconnect -- no separate code path needed for "detected via heartbeat"
+ * vs. "detected via close frame".
  */
 
 const { WebSocketServer } = require('ws');
 const { readSessionCookie, findAccountBySessionToken } = require('../lib/session');
+const { recordMatchResult } = require('../lib/matchHistory');
 const rooms = require('./rooms');
 const { TYPE, errorMessage, sendJson } = require('./protocol');
+const {
+  TURN_TIMEOUT_MS,
+  DISCONNECT_GRACE_MS,
+  CLAIM_FORFEIT_FLOOR_MS,
+  WS_HEARTBEAT_INTERVAL_MS,
+} = require('../config');
 
 const WS_PATH = '/ws';
 
@@ -59,11 +70,27 @@ function attachWebSocketServer(httpServer) {
     ws.accountId = account.id;
     ws.displayName = account.display_name;
     ws.roomCode = null;
+    ws.isAlive = true;
 
+    ws.on('pong', () => {
+      ws.isAlive = true;
+    });
     ws.on('message', (raw) => handleMessage(ws, raw));
     ws.on('close', () => handleClose(ws));
     ws.on('error', (err) => console.error('WS connection error', err));
   });
+
+  const heartbeat = setInterval(() => {
+    wss.clients.forEach((ws) => {
+      if (ws.isAlive === false) {
+        return ws.terminate();
+      }
+      ws.isAlive = false;
+      ws.ping();
+    });
+  }, WS_HEARTBEAT_INTERVAL_MS);
+
+  wss.on('close', () => clearInterval(heartbeat));
 
   return wss;
 }
@@ -88,6 +115,10 @@ function handleMessage(ws, raw) {
       return onLeaveRoom(ws);
     case TYPE.ACTION:
       return onAction(ws, msg);
+    case TYPE.START_MATCH:
+      return onStartMatch(ws, msg);
+    case TYPE.END_TURN:
+      return onEndTurn(ws);
     case TYPE.REPORT_RESULT:
       return onReportResult(ws, msg);
     case TYPE.CLAIM_FORFEIT:
@@ -119,6 +150,19 @@ function onRoomJoin(ws, msg) {
 
   const { room, reconnected } = result;
   ws.roomCode = room.code;
+
+  if (reconnected) {
+    const player = rooms.findPlayer(room, ws.accountId);
+    if (player && player.graceTimeoutHandle) {
+      clearTimeout(player.graceTimeoutHandle);
+      player.graceTimeoutHandle = null;
+    }
+    // Only resumes the turn timer if every player in the room is connected
+    // again -- if this was a "both players dropped" scenario and only one
+    // has come back, the clock stays paused until the other also returns.
+    resumeTurnTimerIfPaused(room);
+  }
+
   const opponent = rooms.opponentOf(room, ws.accountId);
 
   sendJson(ws, {
@@ -126,6 +170,7 @@ function onRoomJoin(ws, msg) {
     code: room.code,
     opponent: opponent ? { displayName: opponent.displayName } : null,
     reconnected,
+    turn: room.turn ? { activeAccountId: room.turn.activeAccountId, deadline: room.turn.deadline } : null,
   });
 
   if (opponent && opponent.connected && opponent.ws) {
@@ -148,11 +193,13 @@ function onLeaveRoom(ws) {
   if (room && room.players.length < 2) {
     // Solo host backing out before anyone joined -- room is discarded
     // outright (spec §6.2: "방 만들기로 대기 중이었다면 방은 폐기됨").
+    clearRoomTimers(room);
     rooms.deleteRoom(room.code);
   }
   ws.roomCode = null;
   // If an opponent was already present, closing here is handled identically
-  // to a normal disconnect by handleClose (opponent gets OPPONENT_DISCONNECTED).
+  // to a normal disconnect by handleClose (opponent gets OPPONENT_DISCONNECTED,
+  // turn timer pauses, 45s grace starts).
   ws.close();
 }
 
@@ -169,7 +216,133 @@ function onAction(ws, msg) {
   sendJson(opponent.ws, { type: TYPE.ACTION, payload: msg.payload, from: ws.displayName });
 }
 
-function onReportResult(ws, msg) {
+// ---------------------------------------------------------------------------
+// 2.5: turn timer
+// ---------------------------------------------------------------------------
+
+function onStartMatch(ws, msg) {
+  const room = ws.roomCode && rooms.getRoom(ws.roomCode);
+  if (!room) {
+    return sendJson(ws, errorMessage('NOT_IN_ROOM', '참여 중인 방이 없습니다'));
+  }
+  if (room.players.length < 2) {
+    return sendJson(ws, errorMessage('OPPONENT_UNAVAILABLE', '상대가 아직 참여하지 않았습니다'));
+  }
+  const firstAccountId = typeof msg.firstAccountId === 'string' ? msg.firstAccountId : null;
+  if (!firstAccountId || !rooms.findPlayer(room, firstAccountId)) {
+    return sendJson(ws, errorMessage('BAD_FIRST_PLAYER', 'firstAccountId가 이 방의 플레이어가 아닙니다'));
+  }
+
+  const started = rooms.startMatch(room, firstAccountId);
+  if (!started) {
+    // Already started (the other client's start_match got here first, or a
+    // duplicate send) -- idempotent no-op, not an error. If a turn is
+    // already running, nothing to do; the earlier turn_started broadcast
+    // already reached both clients.
+    return;
+  }
+
+  beginTurn(room, firstAccountId, TURN_TIMEOUT_MS);
+}
+
+function onEndTurn(ws) {
+  const room = ws.roomCode && rooms.getRoom(ws.roomCode);
+  if (!room) {
+    return sendJson(ws, errorMessage('NOT_IN_ROOM', '참여 중인 방이 없습니다'));
+  }
+  if (!room.turn) {
+    return sendJson(ws, errorMessage('NO_ACTIVE_TURN', '진행 중인 턴이 없습니다'));
+  }
+  if (room.turn.activeAccountId !== ws.accountId) {
+    return sendJson(ws, errorMessage('NOT_YOUR_TURN', '자신의 턴이 아닙니다'));
+  }
+  if (room.turn.timeoutHandle) {
+    clearTimeout(room.turn.timeoutHandle);
+    room.turn.timeoutHandle = null;
+  }
+  advanceTurnAfterEnd(room, ws.accountId);
+}
+
+/** Starts a fresh `durationMs` countdown for `accountId` and broadcasts turn_started. */
+function beginTurn(room, accountId, durationMs) {
+  const deadline = Date.now() + durationMs;
+  room.turn = {
+    activeAccountId: accountId,
+    deadline,
+    remainingMs: null,
+    timeoutHandle: setTimeout(() => onTurnTimeout(room), durationMs),
+  };
+  broadcastToRoom(room, { type: TYPE.TURN_STARTED, activeAccountId: accountId, deadline });
+}
+
+/** Fires when a turn's deadline elapses with no end_turn (spec §7.3). */
+function onTurnTimeout(room) {
+  if (rooms.getRoom(room.code) !== room) return; // room already ended/removed
+  if (!room.turn) return;
+  const timedOutAccountId = room.turn.activeAccountId;
+  room.turn.timeoutHandle = null;
+  broadcastToRoom(room, { type: TYPE.TURN_TIMEOUT, accountId: timedOutAccountId });
+  advanceTurnAfterEnd(room, timedOutAccountId);
+}
+
+/** Shared by manual end_turn and the server-fired timeout -- switch to the opponent, start their timer. */
+function advanceTurnAfterEnd(room, endedAccountId) {
+  const opponent = rooms.opponentOf(room, endedAccountId);
+  if (!opponent) return; // shouldn't happen in a 2-player room, defensive only
+  beginTurn(room, opponent.accountId, TURN_TIMEOUT_MS);
+}
+
+/** Stops the running countdown (if any) and remembers how much time was left. */
+function pauseTurnTimerIfRunning(room) {
+  if (!room.turn || !room.turn.timeoutHandle) return;
+  clearTimeout(room.turn.timeoutHandle);
+  room.turn.timeoutHandle = null;
+  room.turn.remainingMs = Math.max(0, room.turn.deadline - Date.now());
+  room.turn.deadline = null;
+}
+
+/** Resumes a paused countdown from wherever it was left off, but only once everyone is back (spec §8.2). */
+function resumeTurnTimerIfPaused(room) {
+  if (!room.turn) return;
+  if (room.turn.timeoutHandle) return; // not paused
+  if (room.turn.remainingMs == null) return; // nothing to resume
+  if (!room.players.every((p) => p.connected)) return; // still waiting on someone else
+
+  const ms = room.turn.remainingMs;
+  room.turn.remainingMs = null;
+  room.turn.deadline = Date.now() + ms;
+  room.turn.timeoutHandle = setTimeout(() => onTurnTimeout(room), ms);
+  broadcastToRoom(room, {
+    type: TYPE.TURN_STARTED,
+    activeAccountId: room.turn.activeAccountId,
+    deadline: room.turn.deadline,
+  });
+}
+
+function clearRoomTimers(room) {
+  if (room.turn && room.turn.timeoutHandle) {
+    clearTimeout(room.turn.timeoutHandle);
+    room.turn.timeoutHandle = null;
+  }
+  for (const player of room.players) {
+    if (player.graceTimeoutHandle) {
+      clearTimeout(player.graceTimeoutHandle);
+      player.graceTimeoutHandle = null;
+    }
+  }
+}
+
+function broadcastToRoom(room, obj) {
+  for (const player of room.players) {
+    if (player.connected && player.ws) sendJson(player.ws, obj);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 2.6: match-result persistence
+// ---------------------------------------------------------------------------
+
+async function onReportResult(ws, msg) {
   if (msg.result !== 'win' && msg.result !== 'loss') {
     return sendJson(ws, errorMessage('BAD_RESULT', 'result는 win 또는 loss여야 합니다'));
   }
@@ -177,42 +350,104 @@ function onReportResult(ws, msg) {
   if (!room) {
     return sendJson(ws, errorMessage('NOT_IN_ROOM', '참여 중인 방이 없습니다'));
   }
-
-  // TODO (plan.md 2.6): write to match_history here (both accounts, trusting
-  // the client's report per spec's deliberate scope boundary, same spirit as
-  // the RNG-authority call). NOT implemented in this phase -- this handler
-  // only relays the report so both clients can render a consistent
-  // end-of-match screen; nothing is persisted yet.
-  sendJson(ws, { type: TYPE.MATCH_ENDED, result: msg.result, reason: 'client_reported' });
-
+  const reporter = rooms.findPlayer(room, ws.accountId);
   const opponent = rooms.opponentOf(room, ws.accountId);
-  if (opponent && opponent.connected && opponent.ws) {
-    sendJson(opponent.ws, {
-      type: TYPE.MATCH_ENDED,
-      result: msg.result === 'win' ? 'loss' : 'win',
-      reason: 'client_reported',
+  if (!reporter || !opponent) {
+    return sendJson(ws, errorMessage('OPPONENT_UNAVAILABLE', '상대 정보를 찾을 수 없습니다'));
+  }
+
+  // Design call (plan.md 2.6 explicitly leaves "wait for both / trust one"
+  // to programmer judgment): trust whichever client's report_result arrives
+  // FIRST, write both accounts' rows from it, and tear the room down
+  // immediately -- consistent with the existing "no server-side game-rule
+  // validation, trust the client" boundary already established for this
+  // relay (spec §6.3 RNG authority, the report_result doc comment in
+  // protocol.js). If the other client also sends its own report_result a
+  // moment later, the room is already gone and it just gets a harmless
+  // NOT_IN_ROOM error -- no double-write, no cross-check deadlock if the two
+  // reports ever disagreed.
+  const winner = msg.result === 'win' ? reporter : opponent;
+  const loser = msg.result === 'win' ? opponent : reporter;
+
+  try {
+    await recordMatchResult({
+      winner: { accountId: winner.accountId, displayName: winner.displayName },
+      loser: { accountId: loser.accountId, displayName: loser.displayName },
+      forfeit: false,
     });
+  } catch (err) {
+    console.error('match_history write failed (report_result)', err);
+    // Still relay match_ended below so the match doesn't hang for either
+    // client's UI even if persistence failed -- gameplay shouldn't block on
+    // a DB write, and the match itself is genuinely over either way.
+  }
+
+  const otherResult = msg.result === 'win' ? 'loss' : 'win';
+  sendJson(ws, { type: TYPE.MATCH_ENDED, result: msg.result, reason: 'client_reported' });
+  if (opponent.connected && opponent.ws) {
+    sendJson(opponent.ws, { type: TYPE.MATCH_ENDED, result: otherResult, reason: 'client_reported' });
   }
   endRoomAndClearSockets(room);
 }
+
+// ---------------------------------------------------------------------------
+// 2.7: disconnect / forfeit
+// ---------------------------------------------------------------------------
 
 function onClaimForfeit(ws) {
   const room = ws.roomCode && rooms.getRoom(ws.roomCode);
   if (!room) {
     return sendJson(ws, errorMessage('NOT_IN_ROOM', '참여 중인 방이 없습니다'));
   }
+  const claimer = rooms.findPlayer(room, ws.accountId);
   const opponent = rooms.opponentOf(room, ws.accountId);
-  if (!opponent || opponent.connected) {
+  if (!claimer || !opponent || opponent.connected) {
     return sendJson(ws, errorMessage('OPPONENT_CONNECTED', '상대가 연결되어 있어 기권 처리를 할 수 없습니다'));
   }
-  // NOTE (plan.md 2.7): spec §8.2 requires this button to only be enabled
-  // once 10s have elapsed since disconnect was detected. That floor is NOT
-  // enforced server-side yet (nor is the 45s auto-forfeit this is a manual
-  // alternative to) -- both are deferred to 2.7. `opponent.disconnectedAt`
-  // is already tracked in room state so 2.7 can add the check without
-  // touching the message shape.
-  sendJson(ws, { type: TYPE.MATCH_ENDED, result: 'win_forfeit', reason: 'forfeit_claimed' });
+
+  const elapsed = Date.now() - (opponent.disconnectedAt || 0);
+  if (elapsed < CLAIM_FORFEIT_FLOOR_MS) {
+    const remainingSec = Math.ceil((CLAIM_FORFEIT_FLOOR_MS - elapsed) / 1000);
+    return sendJson(
+      ws,
+      errorMessage('CLAIM_TOO_EARLY', `아직 기권 처리를 할 수 없습니다 (${remainingSec}초 후 가능)`)
+    );
+  }
+
+  finalizeForfeit(room, { winner: claimer, loser: opponent, reason: 'forfeit_claimed' });
+}
+
+/** Shared by claim_forfeit and the 45s auto-forfeit grace timeout. */
+async function finalizeForfeit(room, { winner, loser, reason }) {
+  clearRoomTimers(room);
+
+  try {
+    await recordMatchResult({
+      winner: { accountId: winner.accountId, displayName: winner.displayName },
+      loser: { accountId: loser.accountId, displayName: loser.displayName },
+      forfeit: true,
+    });
+  } catch (err) {
+    console.error('match_history write failed (forfeit)', err);
+  }
+
+  if (winner.connected && winner.ws) {
+    sendJson(winner.ws, { type: TYPE.MATCH_ENDED, result: 'win_forfeit', reason });
+  }
+  if (loser.connected && loser.ws) {
+    sendJson(loser.ws, { type: TYPE.MATCH_ENDED, result: 'loss', reason });
+  }
   endRoomAndClearSockets(room);
+}
+
+/** Fires when a disconnected player's 45s grace period runs out with no reconnect (spec §8.2). */
+function onDisconnectGraceExpired(room, accountId) {
+  if (rooms.getRoom(room.code) !== room) return; // room already ended/removed
+  const player = rooms.findPlayer(room, accountId);
+  if (!player || player.connected) return; // reconnected in the meantime, defensive no-op
+  const opponent = rooms.opponentOf(room, accountId);
+  if (!opponent) return;
+  finalizeForfeit(room, { winner: opponent, loser: player, reason: 'disconnect_timeout' });
 }
 
 // Ending a room (match_ended) should free both sockets to create/join a new
@@ -221,6 +456,7 @@ function onClaimForfeit(ws) {
 // longer exists in `rooms`, and the next room_create would wrongly reject
 // with ALREADY_IN_ROOM.
 function endRoomAndClearSockets(room) {
+  clearRoomTimers(room);
   for (const player of room.players) {
     if (player.ws) player.ws.roomCode = null;
   }
@@ -231,10 +467,25 @@ function handleClose(ws) {
   const info = rooms.markDisconnected(ws);
   if (!info) return;
   const { room, player } = info;
+
+  // Both players gone (markDisconnected already deleted the room in that
+  // case) -- nothing left to pause/notify/grace-time for.
+  if (rooms.getRoom(room.code) !== room) {
+    clearRoomTimers(room);
+    return;
+  }
+
+  pauseTurnTimerIfRunning(room);
+
   const opponent = rooms.opponentOf(room, player.accountId);
   if (opponent && opponent.connected && opponent.ws) {
     sendJson(opponent.ws, { type: TYPE.OPPONENT_DISCONNECTED, disconnectedAt: player.disconnectedAt });
   }
+
+  player.graceTimeoutHandle = setTimeout(
+    () => onDisconnectGraceExpired(room, player.accountId),
+    DISCONNECT_GRACE_MS
+  );
 }
 
 module.exports = { attachWebSocketServer };

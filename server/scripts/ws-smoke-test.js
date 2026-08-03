@@ -130,30 +130,32 @@ async function main() {
     `opponent_disconnected carries a disconnectedAt timestamp (got ${JSON.stringify(disconnectMsg)})`
   );
 
-  console.log('\n== claim_forfeit accepted once opponent is disconnected ==');
+  console.log('\n== claim_forfeit rejected immediately after disconnect (plan.md 2.7: 10s floor) ==');
+  // As of 2.7, claim_forfeit also enforces a minimum elapsed time since the
+  // opponent disconnected (spec §8.2, CLAIM_FORFEIT_FLOOR_MS in config.js --
+  // 10s in production). This connection/room bookkeeping test (2.1-2.3)
+  // intentionally does not wait that long, so it now exercises the
+  // "too early" rejection path instead of a successful claim. Full floor
+  // timing coverage (rejected-before / accepted-after) lives in
+  // scripts/pvp-smoke-test.js, which runs the server with a short override
+  // so it doesn't have to burn 10 real seconds here.
   aliceWs.send(JSON.stringify({ type: 'claim_forfeit' }));
   const forfeitResult = await waitForMessage(aliceWs, (m) => m.type === 'match_ended' || m.type === 'error');
   assert(
-    forfeitResult.type === 'match_ended' && forfeitResult.result === 'win_forfeit',
-    `claim_forfeit succeeds after opponent disconnect (got ${JSON.stringify(forfeitResult)})`
+    forfeitResult.type === 'error' && forfeitResult.code === 'CLAIM_TOO_EARLY',
+    `claim_forfeit sent immediately after disconnect is rejected as too early (got ${JSON.stringify(forfeitResult)})`
   );
 
   console.log('\n== reconnect flow: rejoin same room code, opponent notified ==');
-  aliceWs.send(JSON.stringify({ type: 'room_create' }));
-  const created2 = await waitForMessage(aliceWs, (m) => m.type === 'room_created');
+  // Reuses the room from the "disconnect bookkeeping" section above -- bob
+  // is still marked disconnected in it (claim_forfeit was just rejected as
+  // too early, so the room was never torn down), and Alice's socket is
+  // still bound to it. No need to create a fresh room just to test
+  // reconnection.
   const bobWs2 = await connectWs(bob.cookie);
-  bobWs2.send(JSON.stringify({ type: 'room_join', code: created2.code }));
-  await waitForMessage(bobWs2, (m) => m.type === 'room_joined');
-  await waitForMessage(aliceWs, (m) => m.type === 'opponent_joined');
-
-  const reconnectNoticePromise = waitForMessage(aliceWs, (m) => m.type === 'opponent_disconnected');
-  bobWs2.close();
-  await reconnectNoticePromise;
-
-  const bobWs3 = await connectWs(bob.cookie);
   const reconnectAckPromise = waitForMessage(aliceWs, (m) => m.type === 'opponent_reconnected');
-  bobWs3.send(JSON.stringify({ type: 'room_join', code: created2.code }));
-  const rejoinAck = await waitForMessage(bobWs3, (m) => m.type === 'room_joined');
+  bobWs2.send(JSON.stringify({ type: 'room_join', code: created.code }));
+  const rejoinAck = await waitForMessage(bobWs2, (m) => m.type === 'room_joined');
   assert(
     rejoinAck.reconnected === true,
     `rejoining the same room with the same account is flagged reconnected:true (got ${JSON.stringify(rejoinAck)})`
@@ -164,7 +166,7 @@ async function main() {
   console.log('\n== room full: a third stranger cannot join ==');
   const carol = await signup('Carol');
   const carolWs = await connectWs(carol.cookie);
-  carolWs.send(JSON.stringify({ type: 'room_join', code: created2.code }));
+  carolWs.send(JSON.stringify({ type: 'room_join', code: created.code }));
   const roomFullErr = await waitForMessage(carolWs, (m) => m.type === 'error');
   assert(roomFullErr.code === 'ROOM_FULL', `third player rejected with ROOM_FULL (got ${JSON.stringify(roomFullErr)})`);
 
@@ -174,7 +176,7 @@ async function main() {
   assert(notFoundErr.code === 'ROOM_NOT_FOUND', `bogus code rejected with ROOM_NOT_FOUND (got ${JSON.stringify(notFoundErr)})`);
 
   aliceWs.close();
-  bobWs3.close();
+  bobWs2.close();
   carolWs.close();
 
   console.log(`\n${failures === 0 ? 'ALL PASS' : `${failures} FAILURE(S)`}`);

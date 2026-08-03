@@ -1,16 +1,19 @@
 /**
- * Wire protocol for the PvP relay (plan.md Phase 2.2, spec-online-pvp.md §6-§8).
+ * Wire protocol for the PvP relay (plan.md Phase 2.2/2.5/2.6/2.7,
+ * spec-online-pvp.md §6-§8).
  *
  * Every message is JSON with a top-level `type` string, no envelope/versioning
  * beyond that -- small team, no speculative protocol machinery.
  *
  * The relay is a pure opaque passthrough for gameplay content: `action`
  * messages carry whatever payload the client sends (play card / target /
- * end turn / etc.) and the server never inspects or validates that payload's
- * *contents* -- see spec-online-pvp.md §6.3 (per-client RNG authority) and
- * the plan's explicit "no game-rule interpretation" scope boundary. The
- * server only knows about rooms, connections, and the handful of message
- * types below that it needs to interpret for bookkeeping.
+ * etc.) and the server never inspects or validates that payload's *contents*
+ * -- see spec-online-pvp.md §6.3 (per-client RNG authority) and the plan's
+ * explicit "no game-rule interpretation" scope boundary. Two things the
+ * server DOES need real (non-opaque) visibility into, because it's the
+ * authority for them, are turn boundaries (2.5's timer) and match results
+ * (2.6/2.7) -- those get their own dedicated message types below rather than
+ * being inferred from `action` contents.
  *
  * ---------------------------------------------------------------------------
  * Client -> Server
@@ -21,7 +24,10 @@
  * room_join     { code }
  *   Join (or reconnect to) a room by its code. Server replies ROOM_JOINED to
  *   the joiner and OPPONENT_JOINED/OPPONENT_RECONNECTED to the other player
- *   already in the room, if any.
+ *   already in the room, if any. On a reconnect, this also clears that
+ *   player's 45s auto-forfeit grace timer (2.7) and, if both players are now
+ *   connected again, resumes the paused turn timer (2.5) from wherever it
+ *   was left off -- see ROOM_JOINED's `turn` field below.
  *
  * leave_room    {}
  *   Voluntarily leave the current room (spec §6.2 "뒤로" button). If no
@@ -29,55 +35,113 @@
  *   is treated the same as a disconnect (see OPPONENT_DISCONNECTED below).
  *
  * action        { payload }
- *   Opaque passthrough -- play card / target / end turn / whatever the
- *   client-side game engine wants to send. `payload` is forwarded verbatim
- *   to the other player in the room as an ACTION message; the server does
- *   not validate or interpret its contents.
+ *   Opaque passthrough -- play card / target / whatever the client-side game
+ *   engine wants to send. `payload` is forwarded verbatim to the other
+ *   player in the room as an ACTION message; the server does not validate or
+ *   interpret its contents. Turn-end is NOT inferred from this -- see
+ *   end_turn below.
+ *
+ * start_match   { firstAccountId }
+ *   Signals "the match-start sequence (spec §6.3: coin flip, local
+ *   shuffle/draw) is done on the client side, begin turn 1 for
+ *   firstAccountId now." Either player may send this; only the first one to
+ *   arrive takes effect (idempotent no-op after that, since both clients may
+ *   race to send it). `firstAccountId` must be one of the two accounts in
+ *   the room. Client/server responsibility split: the coin flip itself and
+ *   agreeing on who won it is entirely a client-side (Phase 4) concern --
+ *   this relay does not compute or arbitrate the coin flip, it just accepts
+ *   whatever the client(s) report and starts the server-authoritative 24s
+ *   timer from that point. Server replies (broadcast to both) with
+ *   TURN_STARTED for firstAccountId's first turn.
+ *
+ * end_turn      {}
+ *   Sent by the player whose turn it currently is, when their turn ends
+ *   (manual "End Turn" click). This is the dedicated turn-boundary signal
+ *   plan.md 2.5 flagged as needed instead of opaque `action` inspection.
+ *   Rejected with NOT_YOUR_TURN if the sender isn't the active player.
+ *   Strict two-player alternation means the server doesn't need the OTHER
+ *   client to separately announce "my turn starts" -- ending player A's turn
+ *   IS player B's turn starting, so the server immediately stamps a fresh
+ *   24s deadline for B and broadcasts TURN_STARTED. See also TURN_TIMEOUT:
+ *   the server fires the exact same turn-advance logic itself if end_turn
+ *   never arrives in time.
  *
  * report_result { result: 'win' | 'loss' }
  *   Sent by a client when its own (client-authoritative, per spec §6.4)
- *   game logic determines the match is over. Relayed to both players as
- *   MATCH_ENDED. NOTE: this phase does NOT write to match_history (plan.md
- *   2.6) -- that's deferred; see the handler for the TODO.
+ *   game logic determines the match is over. The server does not validate
+ *   this against any game state (no server-side rule engine exists) --
+ *   whichever client's report_result arrives FIRST is trusted, written to
+ *   match_history for both accounts (2.6), relayed to both players as
+ *   MATCH_ENDED, and the room is torn down immediately. A second
+ *   report_result from the other client (e.g. if both clients call it
+ *   independently) lands after the room is gone and just gets a harmless
+ *   NOT_IN_ROOM error -- see ws/server.js for why "trust the first report"
+ *   was chosen over "wait for/cross-check both."
  *
  * claim_forfeit {}
  *   "기권승 처리하기" (spec §8.2) -- claim a win because the opponent is
- *   disconnected. Server only sanity-checks that the opponent is currently
- *   marked disconnected in this room. It does NOT yet enforce the 10s floor
- *   before the button may be used, nor the 45s auto-forfeit -- both are
- *   plan.md 2.7, deferred.
+ *   disconnected. Server checks (a) the opponent is currently marked
+ *   disconnected in this room, AND (b) at least CLAIM_FORFEIT_FLOOR_MS
+ *   (spec: 10s) have elapsed since that disconnect was detected -- rejected
+ *   with CLAIM_TOO_EARLY otherwise. On success, writes match_history (2.6,
+ *   forfeit: true) the same way the 45s auto-forfeit path does.
  *
  * ---------------------------------------------------------------------------
  * Server -> Client
  * ---------------------------------------------------------------------------
  * room_created            { code }
- * room_joined              { code, opponent: { displayName } | null, reconnected }
+ * room_joined              { code, opponent: { displayName } | null,
+ *                             reconnected,
+ *                             turn: { activeAccountId, deadline } | null }
+ *   `turn` reflects the room's current turn-timer state at the moment of
+ *   joining/reconnecting (post-resume, if this join just resumed a paused
+ *   timer) -- null if the match hasn't started yet or the timer is still
+ *   paused waiting on the OTHER player to also reconnect.
  * opponent_joined           { opponent: { displayName } }
  * opponent_disconnected     { disconnectedAt: <ms epoch> }
  * opponent_reconnected      { opponent: { displayName } }
  * action                    { payload, from: <sender displayName> }
- * match_ended               { result: 'win' | 'loss' | 'win_forfeit', reason }
- *                              reason: 'client_reported' | 'forfeit_claimed'
- * error                     { code, message }
+ * turn_started              { activeAccountId, deadline: <ms epoch> }
+ *   Server-stamped deadline = the moment this message is sent + 24000ms
+ *   (spec §7.3), or, on resume after a disconnect pause, + however much time
+ *   was left when the pause started (spec §8.2: "멈췄던 지점부터 다시
+ *   흐른다"). Both clients render the same countdown from this one
+ *   server-issued value instead of computing it locally -- the entire point
+ *   of server-side enforcement (spec §1.4/plan.md "confirmed
+ *   server-enforced").
+ * turn_timeout               { accountId }
+ *   Server fires this itself when a turn's 24s deadline elapses with no
+ *   end_turn from the active player. See the CLIENT/SERVER RESPONSIBILITY
+ *   note below -- this event is the server's entire contribution to
+ *   timeout handling; everything spec §7.3 describes as happening to the
+ *   timed-out player's hand/selected-card is applied by that client itself
+ *   in response to receiving this message (or, for the opponent's client,
+ *   simply observing the turn switch normally).
+ * match_ended                { result: 'win' | 'loss' | 'win_forfeit', reason }
+ *                               reason: 'client_reported' | 'forfeit_claimed'
+ *                                       | 'disconnect_timeout'
+ * error                       { code, message }
  *
  * ---------------------------------------------------------------------------
- * Server -> Client, SHAPE-ONLY for now (plan.md 2.5) -- not emitted by any
- * code path yet. Defined here so the wire format doesn't need to change
- * later, per this session's explicit scope (2.1-2.3 only).
+ * CLIENT / SERVER RESPONSIBILITY BOUNDARY for turn timeout (plan.md 2.5)
  * ---------------------------------------------------------------------------
- * turn_started  { activeAccountId, deadline: <ms epoch> }
- *   Server stamps `deadline` = turn-start time + 24000ms (spec §7.3); both
- *   clients render the same countdown from this one server-issued value
- *   instead of computing it locally. NOT implemented: the relay currently
- *   has no visibility into turn boundaries, because `action` payloads are
- *   opaque by design (see above). Whoever picks up 2.5 will need to either
- *   special-case an `end_turn` action type or introduce a dedicated
- *   non-opaque message for it -- left as an open decision for that task
- *   rather than guessed at here.
+ * Server's job: own the clock. Stamp deadlines, fire turn_timeout exactly
+ * once per elapsed turn regardless of either client's local clock, advance
+ * `activeAccountId` to the other player, and immediately start that
+ * player's fresh 24s timer -- all of this happens even if BOTH clients are
+ * frozen/crashed, because it lives in a server-side setTimeout, not a
+ * client-driven message loop.
  *
- * turn_timeout  { accountId }
- *   Server fires this itself when a turn's deadline elapses with no
- *   end-turn from the active player (spec §7.3). Not implemented.
+ * Client's job (NOT implemented in this phase -- server has no visibility
+ * into hand contents, `selected` card state, mana, etc., by design): on
+ * receiving turn_timeout for its own accountId, apply spec §7.3's steps --
+ * cancel any card mid-target-selection with no mana spent, discard the rest
+ * of the hand, and locally transition to "opponent's turn" UI state. The
+ * server does not and cannot verify a client actually did this; it trusts
+ * the same way it trusts report_result, because there is no server-side
+ * game engine to check against (an explicit, repeated scope boundary
+ * throughout this relay, not something new introduced here).
+ * ---------------------------------------------------------------------------
  */
 
 const TYPE = {
@@ -86,6 +150,8 @@ const TYPE = {
   ROOM_JOIN: 'room_join',
   LEAVE_ROOM: 'leave_room',
   ACTION: 'action',
+  START_MATCH: 'start_match',
+  END_TURN: 'end_turn',
   REPORT_RESULT: 'report_result',
   CLAIM_FORFEIT: 'claim_forfeit',
 
@@ -95,12 +161,10 @@ const TYPE = {
   OPPONENT_JOINED: 'opponent_joined',
   OPPONENT_DISCONNECTED: 'opponent_disconnected',
   OPPONENT_RECONNECTED: 'opponent_reconnected',
-  MATCH_ENDED: 'match_ended',
-  ERROR: 'error',
-
-  // server -> client, shape-only / not yet emitted (plan.md 2.5)
   TURN_STARTED: 'turn_started',
   TURN_TIMEOUT: 'turn_timeout',
+  MATCH_ENDED: 'match_ended',
+  ERROR: 'error',
 };
 
 function errorMessage(code, message) {

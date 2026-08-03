@@ -35,9 +35,16 @@ function createRoom(creator) {
   const code = generateCode();
   const room = {
     code,
-    players: [{ ...creator, connected: true, disconnectedAt: null }],
+    players: [{ ...creator, connected: true, disconnectedAt: null, graceTimeoutHandle: null }],
     createdAt: Date.now(),
     ended: false,
+    // Turn-timer state (plan.md 2.5/2.7), null until start_match arrives.
+    // Shape while a turn is actively counting down:
+    //   { activeAccountId, deadline: <ms epoch>, remainingMs: null, timeoutHandle }
+    // Shape while paused (opponent disconnected mid-turn, spec §8.2):
+    //   { activeAccountId, deadline: null, remainingMs: <ms left>, timeoutHandle: null }
+    turn: null,
+    matchStarted: false,
   };
   rooms.set(code, room);
   socketMeta.set(creator.ws, { code, accountId: creator.accountId });
@@ -82,9 +89,23 @@ function joinRoom(code, player) {
     return { ok: false, error: 'ROOM_FULL' };
   }
 
-  room.players.push({ ...player, connected: true, disconnectedAt: null });
+  room.players.push({ ...player, connected: true, disconnectedAt: null, graceTimeoutHandle: null });
   socketMeta.set(player.ws, { code, accountId: player.accountId });
   return { ok: true, room, reconnected: false };
+}
+
+/**
+ * Starts the match's first turn (plan.md 2.5). No-op (returns false) if
+ * already started or the room isn't full yet -- callers should treat that
+ * as "ignore/idempotent", not a hard error, since either client may send
+ * `start_match` and only the first one should take effect.
+ */
+function startMatch(room, firstAccountId) {
+  if (room.matchStarted) return false;
+  if (room.players.length < 2) return false;
+  if (!findPlayer(room, firstAccountId)) return false;
+  room.matchStarted = true;
+  return true;
 }
 
 /**
@@ -132,4 +153,5 @@ module.exports = {
   markDisconnected,
   deleteRoom,
   endRoom,
+  startMatch,
 };
