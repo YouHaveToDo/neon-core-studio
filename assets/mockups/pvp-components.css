@@ -176,6 +176,26 @@
   50% { box-shadow: 0 0 24px rgba(63, 143, 166, 0.55), inset 0 0 12px rgba(0, 0, 0, 0.55); }
 }
 @media (prefers-reduced-motion: reduce) { .opponent-portrait-frame { animation: none; } }
+
+/* rev.3→rev.4 (art-direction.md §8.5): since rev.3, the bust is a multi-shape illustration
+   (see assets/icons.svg) instead of a single currentColor silhouette, so `color: var(--steel)`
+   on .opponent-portrait-silhouette no longer does anything for the icon-char-opponent-a/b/c
+   symbols (rev.3's fills were baked gradients; rev.4's are baked flat/cel-shade hex colors —
+   neither is currentColor) — left in place harmlessly since old .opponent-portrait-silhouette
+   usages elsewhere (or a future reversion) still rely on it. rev.4 replaced rev.3's gradient
+   shading with flat two-tone cel-shading specifically because gradient/stroke detail was
+   confirmed (headless-screenshot comparison) to lose definition at the real 64px in-game size;
+   rev.4 also redrew the silhouette itself (real neck, shoulders-widest-then-taper-to-waist)
+   because rev.2's neck-less bell-shaped torso read as the generic OS/app "no avatar" glyph
+   rather than a character, even though it was technically unambiguous as "a person" — see
+   art-direction.md §8.5 rev.4 for the full writeup. The 64px in-game size
+   (.opponent-portrait-frame) itself is unchanged since rev.2 — that's a layout constraint from
+   the compact .opponent-identity row, not an art decision, and rev.4 was specifically
+   designed/checked against that real 64px size (not just the larger showcase size). The
+   `.showcase` modifier below is ONLY for the side-by-side review swatches in
+   screen-battle-pvp.html so shading/silhouette detail is easier to inspect at a glance; it is
+   not used anywhere in the actual battle screen. */
+.opponent-portrait-frame.showcase { width: 104px; height: 104px; }
 .opponent-meta-row { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; justify-content: center; margin-top: 6px; }
 .opponent-meta-row .vital { font-size: 13px; }
 .opponent-meta-row .pile-counters { margin-left: 0; }

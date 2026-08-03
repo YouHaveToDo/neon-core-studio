@@ -1,6 +1,17 @@
-<svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+<svg xmlns="http://www.w3.org/2000/svg" style="position:absolute; width:0; height:0; overflow:hidden" aria-hidden="true">
   <!-- Arcane Ledger icon sprite sheet. Use via <use href="assets/icons.svg#icon-sword" />.
-       All icons: 24x24 viewBox, stroke-based, currentColor. -->
+       All icons: 24x24 viewBox, stroke-based, currentColor.
+
+       NOTE on the wrapper technique: this used to be `style="display:none"`. Switched to the
+       position:absolute/width:0/height:0/overflow:hidden hack (same visual result — the sprite
+       sheet itself never paints) while iterating on the opponent-bust gradients below, because
+       `display:none` on an ancestor stops Chrome/Safari from computing the objectBoundingBox
+       that <linearGradient>/<radialGradient> need, so any gradient-filled symbol referenced via
+       <use> silently rendered with NO fill at all (confirmed by screenshotting `card-back` before
+       this fix — its background/glow gradients were invisible, only the flat-color strokes and
+       the gold mana-drop showed). This wrapper form keeps the sprite sheet out of layout/paint
+       exactly like display:none did, but keeps gradient references resolvable. Fixes card-back
+       too, not just the new opponent art below. -->
 
   <symbol id="icon-sword" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
     <path d="M14.5 3.5L20.5 9.5L11 19L7 20L8 16L17.5 6.5" />
@@ -47,35 +58,186 @@
              M42 30 L58 30 L58 38 L42 38 Z" />
   </symbol>
 
-  <!-- Generic opponent silhouettes (online PvP, spec-online-pvp.md §7.2, art-direction.md
-       §8.5). Same frame+silhouette technique as the enemy portraits above (100x100
-       viewBox, flat fill, currentColor) but reworked to read as "a person", not a
-       monster: no visor/hood/crown features, no face cutout (a cutout there would
-       read as a mask, which fits a monster archetype but not a generic human), just
-       a plain head+shoulders bust. There is no avatar/identity system this milestone
-       (spec §4.4), so these are NOT tied to any account — purely decorative, the
-       same 3 options exist for every match. Client picks one pseudo-randomly per
-       match (recommend seeding by match/room id so it stays stable for the duration
-       of a match rather than changing on re-render) purely to avoid every single
-       match looking visually identical; the 3 variants differ only in a cosmetic
-       "hairstyle" silhouette so they read as members of the same generic-figure
-       family, not as distinct characters. -->
+  <!-- Generic opponent bust — rev.3 (CEO review of rev.2: "이런 픽토그램 말고 그래픽으로
+       만들어줘" — the single-currentColor-fill busts below read as UI glyphs, not character
+       art). Kept as -prev symbols for side-by-side comparison in
+       assets/mockups/screen-battle-pvp.html; no longer the live asset. See
+       icon-char-opponent-a/b/c further down for the replacement and art-direction.md §8.5
+       for the rationale. -->
 
-  <symbol id="icon-char-opponent-a" viewBox="0 0 100 100" fill="currentColor">
+  <symbol id="icon-char-opponent-a-prev" viewBox="0 0 100 100" fill="currentColor">
     <path d="M34 30 A16 16 0 1 1 66 30 A16 16 0 1 1 34 30 Z
              M18 96 C18 66 32 48 50 48 C68 48 82 66 82 96 Z" />
   </symbol>
 
-  <symbol id="icon-char-opponent-b" viewBox="0 0 100 100" fill="currentColor">
+  <symbol id="icon-char-opponent-b-prev" viewBox="0 0 100 100" fill="currentColor">
     <path d="M33 33 C33 20 40 11 50 11 C60 11 67 20 67 33 C67 42 60 47 50 47 C40 47 33 42 33 33 Z
              M16 96 C16 66 31 47 50 47 C69 47 84 66 84 96 Z" />
   </symbol>
 
-  <symbol id="icon-char-opponent-c" viewBox="0 0 100 100" fill="currentColor">
+  <symbol id="icon-char-opponent-c-prev" viewBox="0 0 100 100" fill="currentColor">
     <path d="M35 28 A15 15 0 1 1 65 28 A15 15 0 1 1 35 28 Z
              M33 30 C25 40 23 56 28 70 L38 64 C34 52 35 38 40 29 Z
              M67 30 C75 40 77 56 72 70 L62 64 C66 52 65 38 60 29 Z
              M20 96 C20 70 33 52 50 52 C67 52 80 70 80 96 Z" />
+  </symbol>
+
+  <!-- Generic opponent bust — rev.3 (SUPERSEDED by rev.4 further below — kept only as the
+       middle step of the rev.2/rev.3/rev.4 comparison in screen-battle-pvp.html, no longer
+       referenced by the live battle screen; symbol ids below carry a -rev3 suffix so they
+       don't collide with the live icon-char-opponent-a/b/c ids, which now point at rev.4).
+       Built for online PvP (spec-online-pvp.md §7.2, art-direction.md §8.5). Same "generic,
+       faceless, no avatar/identity system" scope as rev.2 (spec §4.4; still no
+       visor/hood/crown/face-cutout — those read as monster/mask coding) but rebuilt as an
+       actual rendered illustration instead of a single flat currentColor fill:
+
+       - Layered form, not one silhouette blob: separate shoulders/torso, neck (a small
+         occlusion-shadow ellipse where head meets collar), head, and hair paths — 5-8 shapes
+         per variant instead of 1.
+       - Gradient shading for volume: opp-body-grad / opp-head-grad / opp-hair-grad (shared
+         <defs> above the 3 symbols, since all 3 variants use the identical body+head shapes
+         and only the hair silhouette differs — see art-direction.md §8.5 rev.3) light the form
+         from the upper-left, so the head reads as a sphere and the torso as a draped volume
+         rather than a flat cutout.
+       - Extra rendering passes on top of the gradients: a head-shade crescent (built from the
+         same circle arc as the head so it can't spill outside the silhouette) for a sphere
+         terminator line, a body-shade sliver along the right contour for consistent light
+         direction, a thin hair-sheen highlight stroke, and a rim-light stroke along the
+         upper-left contour — the same "surface-detail polish" vocabulary as §7 (gradients +
+         layered shadow work), applied to the character shape itself rather than only to the
+         CSS frame around it.
+       - Fixed (non-currentColor) palette: like card-back below, this asset always renders the
+         same regardless of context (frame is hardcoded to the steel color via CSS, per §8.5), so the
+         shading colors are baked in rather than inherited — gradient stops can't safely track
+         an inherited currentColor across browsers the way flat fills can.
+       - Hairstyle is still the only per-variant difference (spec intent unchanged): -a = short
+         cropped, -b = voluminous rounded, -c = long past-the-shoulder — so the 3 read as one
+         generic figure's cosmetic variety, not 3 distinct characters.
+
+       There is still no avatar/identity system this milestone (spec §4.4) — purely decorative,
+       same 3 options for every match, client picks one pseudo-randomly per match (see -prev
+       comment above / art-direction.md §8.5 for the seeding recommendation). -->
+
+  <defs>
+    <linearGradient id="opp-body-grad" x1="15%" y1="0%" x2="90%" y2="100%">
+      <stop offset="0" stop-color="#6fbdd1" />
+      <stop offset="45%" stop-color="#3f8fa6" />
+      <stop offset="100%" stop-color="#1c4650" />
+    </linearGradient>
+    <radialGradient id="opp-head-grad" cx="38%" cy="30%" r="75%">
+      <stop offset="0" stop-color="#a3dfee" />
+      <stop offset="55%" stop-color="#4a9bb0" />
+      <stop offset="100%" stop-color="#1c4650" />
+    </radialGradient>
+    <linearGradient id="opp-hair-grad" x1="30%" y1="0%" x2="65%" y2="100%">
+      <stop offset="0" stop-color="#3c545e" />
+      <stop offset="55%" stop-color="#223038" />
+      <stop offset="100%" stop-color="#121a1e" />
+    </linearGradient>
+  </defs>
+
+  <symbol id="icon-char-opponent-a-rev3" viewBox="0 0 100 100">
+    <path d="M16 97 C16 68 30 45 50 45 C70 45 84 68 84 97 Z" fill="url(#opp-body-grad)" />
+    <path d="M82 96 C82 72 71 52 56 46 C60 52 66 60 68 70 C70 80 71 88 72 96 Z" fill="#16323a" opacity="0.28" />
+    <ellipse cx="50" cy="45" rx="9" ry="5" fill="#16323a" opacity="0.5" />
+    <path d="M34 30 A16 16 0 1 1 66 30 A16 16 0 1 1 34 30 Z" fill="url(#opp-head-grad)" />
+    <path d="M50 14 A16 16 0 1 1 50 46 A11 16 0 1 0 50 14 Z" fill="#16323a" opacity="0.32" />
+    <path d="M34 30 A16 16 0 0 1 66 30 C64 23 58 19 50 19 C42 19 36 23 34 30 Z" fill="url(#opp-hair-grad)" />
+    <path d="M40 21 C44 19 56 19 60 21" stroke="#8fd6e6" stroke-width="1.6" fill="none" opacity="0.45" stroke-linecap="round" />
+    <path d="M36 20 A16 16 0 0 0 34 30 M22 88 C22 66 33 49 46 46" stroke="#a7e2ef" stroke-width="1.3" fill="none" opacity="0.35" stroke-linecap="round" />
+  </symbol>
+
+  <symbol id="icon-char-opponent-b-rev3" viewBox="0 0 100 100">
+    <path d="M16 97 C16 68 30 45 50 45 C70 45 84 68 84 97 Z" fill="url(#opp-body-grad)" />
+    <path d="M82 96 C82 72 71 52 56 46 C60 52 66 60 68 70 C70 80 71 88 72 96 Z" fill="#16323a" opacity="0.28" />
+    <ellipse cx="50" cy="45" rx="9" ry="5" fill="#16323a" opacity="0.5" />
+    <path d="M34 30 A16 16 0 1 1 66 30 A16 16 0 1 1 34 30 Z" fill="url(#opp-head-grad)" />
+    <path d="M50 14 A16 16 0 1 1 50 46 A11 16 0 1 0 50 14 Z" fill="#16323a" opacity="0.32" />
+    <path d="M26 40 C22 24 32 9 50 9 C68 9 78 24 74 40 C73 45 67 47 62 45 C65 38 65 27 59 20 C54 15 46 15 41 20 C35 27 35 38 38 45 C33 47 27 45 26 40 Z" fill="url(#opp-hair-grad)" />
+    <path d="M36 20 C42 12 58 12 64 20" stroke="#8fd6e6" stroke-width="1.6" fill="none" opacity="0.45" stroke-linecap="round" />
+    <path d="M28 34 A20 20 0 0 0 26 40 M22 88 C22 66 33 49 46 46" stroke="#a7e2ef" stroke-width="1.3" fill="none" opacity="0.35" stroke-linecap="round" />
+  </symbol>
+
+  <symbol id="icon-char-opponent-c-rev3" viewBox="0 0 100 100">
+    <path d="M16 97 C16 68 30 45 50 45 C70 45 84 68 84 97 Z" fill="url(#opp-body-grad)" />
+    <path d="M82 96 C82 72 71 52 56 46 C60 52 66 60 68 70 C70 80 71 88 72 96 Z" fill="#16323a" opacity="0.28" />
+    <ellipse cx="50" cy="45" rx="9" ry="5" fill="#16323a" opacity="0.5" />
+    <path d="M34 30 A16 16 0 1 1 66 30 A16 16 0 1 1 34 30 Z" fill="url(#opp-head-grad)" />
+    <path d="M50 14 A16 16 0 1 1 50 46 A11 16 0 1 0 50 14 Z" fill="#16323a" opacity="0.32" />
+    <path d="M33 26 C25 33 22 46 25 62 C26 70 29 77 33 82 C35 79 36 74 35 70 C32 60 31 48 33 38 C34 33 36 29 39 26 Z" fill="url(#opp-hair-grad)" />
+    <path d="M67 26 C75 33 78 46 75 62 C74 70 71 77 67 82 C65 79 64 74 65 70 C68 60 69 48 67 38 C66 33 64 29 61 26 Z" fill="url(#opp-hair-grad)" />
+    <path d="M34 30 A16 16 0 0 1 66 30 C64 23 58 19 50 19 C42 19 36 23 34 30 Z" fill="url(#opp-hair-grad)" />
+    <path d="M40 21 C44 19 56 19 60 21" stroke="#8fd6e6" stroke-width="1.6" fill="none" opacity="0.45" stroke-linecap="round" />
+    <path d="M36 20 A16 16 0 0 0 34 30 M22 88 C22 66 33 49 46 46" stroke="#a7e2ef" stroke-width="1.3" fill="none" opacity="0.35" stroke-linecap="round" />
+  </symbol>
+
+  <!-- Generic opponent bust — rev.4 (CURRENT/LIVE — CEO reversed part of rev.3's direction:
+       stay SVG/procedural, pictogram-style is fine, but must be unambiguously "a person" at
+       the real in-game 64px size, not mistaken for a UI icon). art-direction.md §8.5 rev.4 has
+       the full writeup; short version of what changed and why, based on empirical 64px
+       screenshot review of both prior revs:
+
+       - rev.2's real problem wasn't the flat-fill technique — at 64px it read AS a person, just
+         as the wrong kind of person: a circular head fused directly onto a bell-shaped torso
+         that continuously widens toward the bottom, with zero neck and zero shoulder-to-body
+         taper, is exactly the universal "no avatar" placeholder glyph used in every OS/app
+         account menu. That's almost certainly what read as "a pictogram" rather than "a
+         character" — not vagueness, but over-familiarity with a specific *other* meaning.
+       - rev.3's layered gradients/rim-light/hair-sheen strokes measurably lost definition at
+         64px in a headless screenshot comparison (confirmed, not assumed) — thin stroke
+         details nearly disappeared and the head read as a soft glowing blob rather than a
+         shaded sphere, i.e. exactly the "gradients that read fine at 104px turn into
+         indistinct smudges at 64px" risk this rev was briefed to check for.
+       - Fix applied here: rebuilt the body silhouette with an actual narrow neck (distinctly
+         thinner than both the head and the shoulders) and shoulders that are the widest point
+         of the silhouette, tapering back inward toward the cropped waist at the bottom — real
+         torso anatomy instead of a cone. Shading is now flat/cel (two hard-edged fill tones,
+         `opp4-body`/`opp4-body-shadow`/`opp4-head-shadow` below, split down the sagittal
+         midline) instead of a smooth gradient — this reads as "lit form" at both 64px and
+         104px because hard edges don't blur or lose definition at small sizes the way gradient
+         stops do. Hair uses a third flat, high-contrast dark tone (no gradient, no thin sheen
+         strokes) so the hairline silhouette itself (not fine shading on top of it) carries the
+         per-variant identity, since silhouette shape survives downscaling far better than
+         surface detail does.
+       - Same scope as rev.2/rev.3, unchanged: generic/faceless (spec §4.4), no visor/hood/face
+         cutout (that's monster/mask coding, not appropriate for "a person"), 3 variants sharing
+         one body+head shape with only the hairline differing (-a = short cropped, -b =
+         voluminous rounded, -c = long past-the-shoulder), fixed (non-currentColor) palette for
+         the same gradient-inheritance-safety reason as rev.3/card-back.
+       - Live ids (icon-char-opponent-a/b/c) now point at this rev — rev.2 and rev.3 are kept
+         as icon-char-opponent-{a,b,c}-prev / -rev3 purely for the comparison in
+         screen-battle-pvp.html; neither is referenced by the actual battle screen anymore. -->
+
+  <defs>
+    <path id="opp4-body" d="M42 38 C36 40 22 44 14 58 C10 72 14 88 20 97 L80 97 C86 88 90 72 86 58 C78 44 64 40 58 38 C58 33 42 33 42 38 Z" />
+    <path id="opp4-body-shadow" d="M50 38 L58 38 C64 40 78 44 86 58 C90 72 86 88 80 97 L50 97 Z" />
+    <path id="opp4-head-shadow" d="M50 12 A14 14 0 0 1 50 40 A14 14 0 0 0 50 12 Z" />
+  </defs>
+
+  <symbol id="icon-char-opponent-a" viewBox="0 0 100 100">
+    <use href="#opp4-body" fill="#4a9bb0" />
+    <use href="#opp4-body-shadow" fill="#2d6376" />
+    <circle cx="50" cy="26" r="14" fill="#4a9bb0" />
+    <use href="#opp4-head-shadow" fill="#2d6376" />
+    <path d="M36 26 A14 14 0 0 1 64 26 C62 19 57 15 50 15 C43 15 38 19 36 26 Z" fill="#1c2a30" />
+  </symbol>
+
+  <symbol id="icon-char-opponent-b" viewBox="0 0 100 100">
+    <use href="#opp4-body" fill="#4a9bb0" />
+    <use href="#opp4-body-shadow" fill="#2d6376" />
+    <circle cx="50" cy="26" r="14" fill="#4a9bb0" />
+    <use href="#opp4-head-shadow" fill="#2d6376" />
+    <path d="M27 37 C23 23 32 10 50 10 C68 10 77 23 73 37 C72 41 66 43 61 41 C64 35 63 25 58 19 C53 14 47 14 42 19 C37 25 36 35 39 41 C34 43 28 41 27 37 Z" fill="#1c2a30" />
+  </symbol>
+
+  <symbol id="icon-char-opponent-c" viewBox="0 0 100 100">
+    <use href="#opp4-body" fill="#4a9bb0" />
+    <use href="#opp4-body-shadow" fill="#2d6376" />
+    <circle cx="50" cy="26" r="14" fill="#4a9bb0" />
+    <use href="#opp4-head-shadow" fill="#2d6376" />
+    <path d="M31 22 C24 29 21 44 24 60 C25 68 28 75 32 80 C34 77 35 72 34 68 C31 58 30 46 32 36 C33 31 35 27 38 22 Z" fill="#1c2a30" />
+    <path d="M69 22 C76 29 79 44 76 60 C75 68 72 75 68 80 C66 77 65 72 66 68 C69 58 70 46 68 36 C67 31 65 27 62 22 Z" fill="#1c2a30" />
+    <path d="M36 26 A14 14 0 0 1 64 26 C62 19 57 15 50 15 C43 15 38 19 36 26 Z" fill="#1c2a30" />
   </symbol>
 
   <!-- Online-PvP additions (spec-online-pvp.md §9 art debt). New UI icons: 24x24

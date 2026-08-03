@@ -8,7 +8,12 @@
 </head>
 <body>
 
-<svg style="display:none" aria-hidden="true">
+<!-- Sprite wrapper: position:absolute/width:0/height:0/overflow:hidden, NOT display:none.
+     display:none on this element used to make Chrome/Safari unable to compute the
+     objectBoundingBox that <linearGradient>/<radialGradient> below need, so any
+     gradient-filled symbol referenced via <use> (card-back, and now the opponent busts)
+     rendered with no fill at all. See assets/icons.svg for the same fix + longer note. -->
+<svg style="position:absolute; width:0; height:0; overflow:hidden" aria-hidden="true">
   <symbol id="icon-sword" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
     <path d="M14.5 3.5L20.5 9.5L11 19L7 20L8 16L17.5 6.5" />
     <path d="M4 20L7.5 16.5" />
@@ -24,22 +29,114 @@
     <path d="M12 20C12 20 4 14.5 4 9C4 6.2 6.2 4 9 4C10.5 4 11.5 4.8 12 5.5C12.5 4.8 13.5 4 15 4C17.8 4 20 6.2 20 9C20 14.5 12 20 12 20Z" />
   </symbol>
 
-  <!-- icon-char-opponent-{a,b,c}: see assets/icons.svg for the source of truth
-       definition and the reasoning comment (generic/decorative, not tied to
-       any account, purely cosmetic 3-way variety). -->
-  <symbol id="icon-char-opponent-a" viewBox="0 0 100 100" fill="currentColor">
+  <!-- icon-char-opponent-{a,b,c}-prev: rev.2 flat single-fill busts, kept only for the
+       "rev.2" column of the rev.2/rev.3/rev.4 comparison showcase further down this page. See
+       assets/icons.svg for the source of truth and the CEO-feedback note. -->
+  <symbol id="icon-char-opponent-a-prev" viewBox="0 0 100 100" fill="currentColor">
     <path d="M34 30 A16 16 0 1 1 66 30 A16 16 0 1 1 34 30 Z
              M18 96 C18 66 32 48 50 48 C68 48 82 66 82 96 Z" />
   </symbol>
-  <symbol id="icon-char-opponent-b" viewBox="0 0 100 100" fill="currentColor">
+  <symbol id="icon-char-opponent-b-prev" viewBox="0 0 100 100" fill="currentColor">
     <path d="M33 33 C33 20 40 11 50 11 C60 11 67 20 67 33 C67 42 60 47 50 47 C40 47 33 42 33 33 Z
              M16 96 C16 66 31 47 50 47 C69 47 84 66 84 96 Z" />
   </symbol>
-  <symbol id="icon-char-opponent-c" viewBox="0 0 100 100" fill="currentColor">
+  <symbol id="icon-char-opponent-c-prev" viewBox="0 0 100 100" fill="currentColor">
     <path d="M35 28 A15 15 0 1 1 65 28 A15 15 0 1 1 35 28 Z
              M33 30 C25 40 23 56 28 70 L38 64 C34 52 35 38 40 29 Z
              M67 30 C75 40 77 56 72 70 L62 64 C66 52 65 38 60 29 Z
              M20 96 C20 70 33 52 50 52 C67 52 80 70 80 96 Z" />
+  </symbol>
+
+  <!-- icon-char-opponent-{a,b,c}-rev3: rev.3, SUPERSEDED — rendered illustration (layered
+       gradient-shaded shapes) that replaced the flat -prev busts above. Kept only for the
+       middle column of the rev.2/rev.3/rev.4 comparison further down this page; not used by
+       the live battle screen (see icon-char-opponent-a/b/c below for the live rev.4 asset).
+       See assets/icons.svg for the source of truth and art-direction.md §8.5 for the reasoning
+       (incl. why rev.4 replaced it: gradient/stroke detail measurably lost definition at the
+       real 64px in-game size). -->
+  <defs>
+    <linearGradient id="opp-body-grad" x1="15%" y1="0%" x2="90%" y2="100%">
+      <stop offset="0" stop-color="#6fbdd1" />
+      <stop offset="45%" stop-color="#3f8fa6" />
+      <stop offset="100%" stop-color="#1c4650" />
+    </linearGradient>
+    <radialGradient id="opp-head-grad" cx="38%" cy="30%" r="75%">
+      <stop offset="0" stop-color="#a3dfee" />
+      <stop offset="55%" stop-color="#4a9bb0" />
+      <stop offset="100%" stop-color="#1c4650" />
+    </radialGradient>
+    <linearGradient id="opp-hair-grad" x1="30%" y1="0%" x2="65%" y2="100%">
+      <stop offset="0" stop-color="#3c545e" />
+      <stop offset="55%" stop-color="#223038" />
+      <stop offset="100%" stop-color="#121a1e" />
+    </linearGradient>
+  </defs>
+  <symbol id="icon-char-opponent-a-rev3" viewBox="0 0 100 100">
+    <path d="M16 97 C16 68 30 45 50 45 C70 45 84 68 84 97 Z" fill="url(#opp-body-grad)" />
+    <path d="M82 96 C82 72 71 52 56 46 C60 52 66 60 68 70 C70 80 71 88 72 96 Z" fill="#16323a" opacity="0.28" />
+    <ellipse cx="50" cy="45" rx="9" ry="5" fill="#16323a" opacity="0.5" />
+    <path d="M34 30 A16 16 0 1 1 66 30 A16 16 0 1 1 34 30 Z" fill="url(#opp-head-grad)" />
+    <path d="M50 14 A16 16 0 1 1 50 46 A11 16 0 1 0 50 14 Z" fill="#16323a" opacity="0.32" />
+    <path d="M34 30 A16 16 0 0 1 66 30 C64 23 58 19 50 19 C42 19 36 23 34 30 Z" fill="url(#opp-hair-grad)" />
+    <path d="M40 21 C44 19 56 19 60 21" stroke="#8fd6e6" stroke-width="1.6" fill="none" opacity="0.45" stroke-linecap="round" />
+    <path d="M36 20 A16 16 0 0 0 34 30 M22 88 C22 66 33 49 46 46" stroke="#a7e2ef" stroke-width="1.3" fill="none" opacity="0.35" stroke-linecap="round" />
+  </symbol>
+  <symbol id="icon-char-opponent-b-rev3" viewBox="0 0 100 100">
+    <path d="M16 97 C16 68 30 45 50 45 C70 45 84 68 84 97 Z" fill="url(#opp-body-grad)" />
+    <path d="M82 96 C82 72 71 52 56 46 C60 52 66 60 68 70 C70 80 71 88 72 96 Z" fill="#16323a" opacity="0.28" />
+    <ellipse cx="50" cy="45" rx="9" ry="5" fill="#16323a" opacity="0.5" />
+    <path d="M34 30 A16 16 0 1 1 66 30 A16 16 0 1 1 34 30 Z" fill="url(#opp-head-grad)" />
+    <path d="M50 14 A16 16 0 1 1 50 46 A11 16 0 1 0 50 14 Z" fill="#16323a" opacity="0.32" />
+    <path d="M26 40 C22 24 32 9 50 9 C68 9 78 24 74 40 C73 45 67 47 62 45 C65 38 65 27 59 20 C54 15 46 15 41 20 C35 27 35 38 38 45 C33 47 27 45 26 40 Z" fill="url(#opp-hair-grad)" />
+    <path d="M36 20 C42 12 58 12 64 20" stroke="#8fd6e6" stroke-width="1.6" fill="none" opacity="0.45" stroke-linecap="round" />
+    <path d="M28 34 A20 20 0 0 0 26 40 M22 88 C22 66 33 49 46 46" stroke="#a7e2ef" stroke-width="1.3" fill="none" opacity="0.35" stroke-linecap="round" />
+  </symbol>
+  <symbol id="icon-char-opponent-c-rev3" viewBox="0 0 100 100">
+    <path d="M16 97 C16 68 30 45 50 45 C70 45 84 68 84 97 Z" fill="url(#opp-body-grad)" />
+    <path d="M82 96 C82 72 71 52 56 46 C60 52 66 60 68 70 C70 80 71 88 72 96 Z" fill="#16323a" opacity="0.28" />
+    <ellipse cx="50" cy="45" rx="9" ry="5" fill="#16323a" opacity="0.5" />
+    <path d="M34 30 A16 16 0 1 1 66 30 A16 16 0 1 1 34 30 Z" fill="url(#opp-head-grad)" />
+    <path d="M50 14 A16 16 0 1 1 50 46 A11 16 0 1 0 50 14 Z" fill="#16323a" opacity="0.32" />
+    <path d="M33 26 C25 33 22 46 25 62 C26 70 29 77 33 82 C35 79 36 74 35 70 C32 60 31 48 33 38 C34 33 36 29 39 26 Z" fill="url(#opp-hair-grad)" />
+    <path d="M67 26 C75 33 78 46 75 62 C74 70 71 77 67 82 C65 79 64 74 65 70 C68 60 69 48 67 38 C66 33 64 29 61 26 Z" fill="url(#opp-hair-grad)" />
+    <path d="M34 30 A16 16 0 0 1 66 30 C64 23 58 19 50 19 C42 19 36 23 34 30 Z" fill="url(#opp-hair-grad)" />
+    <path d="M40 21 C44 19 56 19 60 21" stroke="#8fd6e6" stroke-width="1.6" fill="none" opacity="0.45" stroke-linecap="round" />
+    <path d="M36 20 A16 16 0 0 0 34 30 M22 88 C22 66 33 49 46 46" stroke="#a7e2ef" stroke-width="1.3" fill="none" opacity="0.35" stroke-linecap="round" />
+  </symbol>
+
+  <!-- icon-char-opponent-{a,b,c}: rev.4, LIVE — real neck + shoulders-widest-then-taper-to-waist
+       silhouette (fixes rev.2's "reads as the generic OS/app no-avatar placeholder glyph, not a
+       character" problem) with flat/cel two-tone shading instead of gradients (fixes rev.3's
+       "shading smudges at 64px" problem) — both confirmed via headless-screenshot comparison at
+       the real 64px in-game size. See assets/icons.svg for the source of truth and full
+       reasoning, art-direction.md §8.5 rev.4 for the writeup. -->
+  <defs>
+    <path id="opp4-body" d="M42 38 C36 40 22 44 14 58 C10 72 14 88 20 97 L80 97 C86 88 90 72 86 58 C78 44 64 40 58 38 C58 33 42 33 42 38 Z" />
+    <path id="opp4-body-shadow" d="M50 38 L58 38 C64 40 78 44 86 58 C90 72 86 88 80 97 L50 97 Z" />
+    <path id="opp4-head-shadow" d="M50 12 A14 14 0 0 1 50 40 A14 14 0 0 0 50 12 Z" />
+  </defs>
+  <symbol id="icon-char-opponent-a" viewBox="0 0 100 100">
+    <use href="#opp4-body" fill="#4a9bb0" />
+    <use href="#opp4-body-shadow" fill="#2d6376" />
+    <circle cx="50" cy="26" r="14" fill="#4a9bb0" />
+    <use href="#opp4-head-shadow" fill="#2d6376" />
+    <path d="M36 26 A14 14 0 0 1 64 26 C62 19 57 15 50 15 C43 15 38 19 36 26 Z" fill="#1c2a30" />
+  </symbol>
+  <symbol id="icon-char-opponent-b" viewBox="0 0 100 100">
+    <use href="#opp4-body" fill="#4a9bb0" />
+    <use href="#opp4-body-shadow" fill="#2d6376" />
+    <circle cx="50" cy="26" r="14" fill="#4a9bb0" />
+    <use href="#opp4-head-shadow" fill="#2d6376" />
+    <path d="M27 37 C23 23 32 10 50 10 C68 10 77 23 73 37 C72 41 66 43 61 41 C64 35 63 25 58 19 C53 14 47 14 42 19 C37 25 36 35 39 41 C34 43 28 41 27 37 Z" fill="#1c2a30" />
+  </symbol>
+  <symbol id="icon-char-opponent-c" viewBox="0 0 100 100">
+    <use href="#opp4-body" fill="#4a9bb0" />
+    <use href="#opp4-body-shadow" fill="#2d6376" />
+    <circle cx="50" cy="26" r="14" fill="#4a9bb0" />
+    <use href="#opp4-head-shadow" fill="#2d6376" />
+    <path d="M31 22 C24 29 21 44 24 60 C25 68 28 75 32 80 C34 77 35 72 34 68 C31 58 30 46 32 36 C33 31 35 27 38 22 Z" fill="#1c2a30" />
+    <path d="M69 22 C76 29 79 44 76 60 C75 68 72 75 68 80 C66 77 65 72 66 68 C69 58 70 46 68 36 C67 31 65 27 62 22 Z" fill="#1c2a30" />
+    <path d="M36 26 A14 14 0 0 1 64 26 C62 19 57 15 50 15 C43 15 38 19 36 26 Z" fill="#1c2a30" />
   </symbol>
 
   <!-- card-back: see assets/icons.svg for the source of truth definition -->
@@ -84,7 +181,7 @@
 <div class="mockup-page">
 
   <div>
-    <div class="mockup-caption">screen: 배틀 화면 — 상대(=실제 플레이어) 패널 (spec §7.2, plan 4.9, art-direction.md §8.5 rev.2)</div>
+    <div class="mockup-caption">screen: 배틀 화면 — 상대(=실제 플레이어) 패널 (spec §7.2, plan 4.9, art-direction.md §8.5 rev.4)</div>
     <p class="mockup-note" style="margin-bottom:16px;">
       타이머는 활성 플레이어 1명당 하나뿐인 공유 카운트다운(spec §7.3) — 양쪽에 동시에 서로 다른 숫자가 떠
       있는 것이 아니므로, 아래 두 상태(내 턴 / 상대 턴)로 나눠 "타이머가 항상 활성 플레이어 쪽 컨트롤
@@ -276,7 +373,9 @@
       구조는 그대로 유지했다(§9 참고). CEO 리뷰에서 1차안(포트레이트를 아예 없앤 순수 데이터 패널)이 "캐릭터
       아트가 없다"는 이유로 반려되어, 기존 적 포트레이트(art-direction.md §5)의 프레임+실루엣 기법을 재사용한
       원형 초상을 <code>.opponent-identity</code> 안, 이름 옆에 작게 배치했다(64px — 상단 바가 이미 조밀해서
-      §5의 96px 몬스터 포트레이트처럼 화면 중앙을 크게 차지하는 구성은 쓰지 않았다). 손패는 카드 뒷면 3장을
+      §5의 96px 몬스터 포트레이트처럼 화면 중앙을 크게 차지하는 구성은 쓰지 않았다). 아래 배틀 화면 두 상태에
+      쓰인 심볼은 rev.4(목/어깨 비례를 다시 잡은 플랫/셀셰이딩 실루엣, 실제 64px에서 가독성 확인 완료) — rev.2/rev.3과의
+      비교는 이 문서 하단 "asset: 상대 포트레이트" 섹션 참고. 손패는 카드 뒷면 3장을
       겹쳐 쌓은 <code>.hand-count-stack</code> + 숫자로 "매수만" 표시. HP바/마나 방울/덱·버림더미 배지는 전부
       기존 컴포넌트 그대로 재사용(신규 CSS 없음). 내 턴이 아닐 때는 손패 카드에 기존
       <code>.unaffordable</code> 스타일(45% 불투명, 클릭 무반응)을 재사용해 "선택 불가"를 표시하고 화면 상단에
@@ -286,32 +385,135 @@
   </div>
 
   <div>
-    <div class="mockup-caption">asset: 상대 포트레이트 — 프레임+실루엣 재사용, 몬스터가 아닌 "일반적인 사람"으로 재해석 (art-direction.md §8.5 rev.2)</div>
-    <div class="mockup-row" style="align-items:center;">
-      <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
-        <div class="opponent-portrait-frame"><svg class="opponent-portrait-silhouette"><use href="#icon-char-opponent-a"></use></svg></div>
-        <span class="mockup-caption" style="border-top:none; padding-top:0;">variant a</span>
+    <div class="mockup-caption">asset: 상대 포트레이트 — rev.2(플랫 픽토그램) vs. rev.3(그라디언트 일러스트, superseded) vs. rev.4(플랫/셀셰이딩, 현재 반영본) (art-direction.md §8.5)</div>
+    <p class="mockup-note" style="margin-bottom:14px;">
+      CEO 리뷰가 두 번 뒤집혔다. 1차 피드백("이런 픽토그램 말고 그래픽으로 만들어줘")에 rev.3(그라디언트+레이어드
+      셰이딩 일러스트)으로 답했으나, 이후 방향이 다시 정리됐다: 팀 제약(SVG/프로시저럴, AI 이미지 생성 안 씀)은
+      유지하고, 픽토그램 스타일 자체는 문제가 아니었다 — 진짜 문제는 <b>실제 게임 내 크기(64px)에서의
+      가독성</b>이었다. 헤드리스 브라우저로 64px 실측 스크린샷 비교를 해보니:
+    </p>
+    <ul class="mockup-note" style="margin-bottom:14px; line-height:1.6;">
+      <li><b>rev.2</b>는 사실 64px에서도 "사람"으로 또렷하게 읽혔다 — 다만 목도 어깨도 없이 원형 머리가 종 모양
+        몸통 위에 바로 얹힌 실루엣이라, 모든 OS/앱의 "계정 없음" 기본 아바타 아이콘과 완전히 같은 모양이었다.
+        모호해서 못 읽은 게 아니라, "사람"으로는 읽히되 "게임 캐릭터"가 아니라 "시스템 UI 아이콘"으로 읽힌
+        것 — 애초 CEO 피드백의 실체에 더 가깝다.</li>
+      <li><b>rev.3</b>의 그라디언트/림라이트 스트로크/헤어 광택선은 104px 쇼케이스에서는 잘 보이지만 64px
+        실측에서는 확연히 뭉개졌다 — 머리는 입체감 있는 구체가 아니라 부드러운 빛 얼룩처럼 보였고, 얇은
+        스트로크 디테일은 거의 사라졌다. "104px에서 좋아 보이는 그라디언트가 64px에서는 얼룩이 될 수 있다"는
+        우려가 실측으로 확인됐다.</li>
+    </ul>
+    <p class="mockup-note" style="margin-bottom:14px;">
+      <b>rev.4</b>는 두 문제를 각각 다른 방식으로 고쳤다: 실루엣 자체를 목이 뚜렷하고(머리보다 확실히 좁음)
+      어깨가 가장 넓은 지점이며 허리 쪽으로 다시 좁아지는 실제 인체 비례로 다시 그렸다(rev.2/rev.3처럼 아래로
+      갈수록 계속 넓어지는 종 모양이 아님) — 이걸로 "계정 아이콘"으로 오독되는 문제를 없앴다. 셰이딩은
+      그라디언트 대신 <b>단단한 경계의 2톤 셀셰이딩</b>(정중선 기준 밝은 면/어두운 면 분할, <code>opp4-body</code>/
+      <code>opp4-body-shadow</code>/<code>opp4-head-grad</code>)으로 바꿔 입체감은 유지하되 축소해도 무너지지
+      않게 했다 — 하드 엣지는 그라디언트처럼 다운스케일에서 흐려지지 않는다. 머리카락도 광택 스트로크를 빼고
+      대비가 강한 단색 3번째 톤 하나로만 표현해, 실루엣 윤곽 자체(변형마다 다른 헤어라인)가 디테일이 아니라
+      "정보"를 전달하게 했다 — 미세 표면 디테일보다 실루엣이 축소 내구성이 훨씬 좋기 때문. 아래 비교는 왼쪽부터
+      rev.2 → rev.3 → rev.4이고, 각 열에 실제 게임 내 크기(64px)와 쇼케이스 크기(104px)를 모두 보여준다.
+    </p>
+    <div class="mockup-row" style="align-items:flex-start; gap:44px;">
+      <div style="display:flex; flex-direction:column; gap:14px;">
+        <span class="mockup-caption" style="border-top:none; padding-top:0;">rev.2 (superseded)</span>
+        <div>
+          <span class="mockup-caption" style="border-top:none; padding-top:0; font-size:10px;">64px (실제 게임 내 크기)</span>
+          <div class="mockup-row" style="gap:16px; margin-top:6px;">
+            <div class="opponent-portrait-frame"><svg class="opponent-portrait-silhouette"><use href="#icon-char-opponent-a-prev"></use></svg></div>
+            <div class="opponent-portrait-frame"><svg class="opponent-portrait-silhouette"><use href="#icon-char-opponent-b-prev"></use></svg></div>
+            <div class="opponent-portrait-frame"><svg class="opponent-portrait-silhouette"><use href="#icon-char-opponent-c-prev"></use></svg></div>
+          </div>
+        </div>
+        <div>
+          <span class="mockup-caption" style="border-top:none; padding-top:0; font-size:10px;">104px (쇼케이스)</span>
+          <div class="mockup-row" style="gap:20px; margin-top:6px;">
+            <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+              <div class="opponent-portrait-frame showcase"><svg class="opponent-portrait-silhouette"><use href="#icon-char-opponent-a-prev"></use></svg></div>
+              <span class="mockup-caption" style="border-top:none; padding-top:0;">variant a</span>
+            </div>
+            <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+              <div class="opponent-portrait-frame showcase"><svg class="opponent-portrait-silhouette"><use href="#icon-char-opponent-b-prev"></use></svg></div>
+              <span class="mockup-caption" style="border-top:none; padding-top:0;">variant b</span>
+            </div>
+            <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+              <div class="opponent-portrait-frame showcase"><svg class="opponent-portrait-silhouette"><use href="#icon-char-opponent-c-prev"></use></svg></div>
+              <span class="mockup-caption" style="border-top:none; padding-top:0;">variant c</span>
+            </div>
+          </div>
+        </div>
       </div>
-      <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
-        <div class="opponent-portrait-frame"><svg class="opponent-portrait-silhouette"><use href="#icon-char-opponent-b"></use></svg></div>
-        <span class="mockup-caption" style="border-top:none; padding-top:0;">variant b</span>
+      <div style="display:flex; flex-direction:column; gap:14px;">
+        <span class="mockup-caption" style="border-top:none; padding-top:0;">rev.3 (superseded)</span>
+        <div>
+          <span class="mockup-caption" style="border-top:none; padding-top:0; font-size:10px;">64px (실제 게임 내 크기)</span>
+          <div class="mockup-row" style="gap:16px; margin-top:6px;">
+            <div class="opponent-portrait-frame"><svg class="opponent-portrait-silhouette"><use href="#icon-char-opponent-a-rev3"></use></svg></div>
+            <div class="opponent-portrait-frame"><svg class="opponent-portrait-silhouette"><use href="#icon-char-opponent-b-rev3"></use></svg></div>
+            <div class="opponent-portrait-frame"><svg class="opponent-portrait-silhouette"><use href="#icon-char-opponent-c-rev3"></use></svg></div>
+          </div>
+        </div>
+        <div>
+          <span class="mockup-caption" style="border-top:none; padding-top:0; font-size:10px;">104px (쇼케이스)</span>
+          <div class="mockup-row" style="gap:20px; margin-top:6px;">
+            <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+              <div class="opponent-portrait-frame showcase"><svg class="opponent-portrait-silhouette"><use href="#icon-char-opponent-a-rev3"></use></svg></div>
+              <span class="mockup-caption" style="border-top:none; padding-top:0;">variant a</span>
+            </div>
+            <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+              <div class="opponent-portrait-frame showcase"><svg class="opponent-portrait-silhouette"><use href="#icon-char-opponent-b-rev3"></use></svg></div>
+              <span class="mockup-caption" style="border-top:none; padding-top:0;">variant b</span>
+            </div>
+            <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+              <div class="opponent-portrait-frame showcase"><svg class="opponent-portrait-silhouette"><use href="#icon-char-opponent-c-rev3"></use></svg></div>
+              <span class="mockup-caption" style="border-top:none; padding-top:0;">variant c</span>
+            </div>
+          </div>
+        </div>
       </div>
-      <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
-        <div class="opponent-portrait-frame"><svg class="opponent-portrait-silhouette"><use href="#icon-char-opponent-c"></use></svg></div>
-        <span class="mockup-caption" style="border-top:none; padding-top:0;">variant c</span>
+      <div style="display:flex; flex-direction:column; gap:14px;">
+        <span class="mockup-caption" style="border-top:none; padding-top:0; color:var(--gold);">rev.4 (현재 반영본)</span>
+        <div>
+          <span class="mockup-caption" style="border-top:none; padding-top:0; font-size:10px;">64px (실제 게임 내 크기)</span>
+          <div class="mockup-row" style="gap:16px; margin-top:6px;">
+            <div class="opponent-portrait-frame"><svg class="opponent-portrait-silhouette"><use href="#icon-char-opponent-a"></use></svg></div>
+            <div class="opponent-portrait-frame"><svg class="opponent-portrait-silhouette"><use href="#icon-char-opponent-b"></use></svg></div>
+            <div class="opponent-portrait-frame"><svg class="opponent-portrait-silhouette"><use href="#icon-char-opponent-c"></use></svg></div>
+          </div>
+        </div>
+        <div>
+          <span class="mockup-caption" style="border-top:none; padding-top:0; font-size:10px;">104px (쇼케이스)</span>
+          <div class="mockup-row" style="gap:20px; margin-top:6px;">
+            <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+              <div class="opponent-portrait-frame showcase"><svg class="opponent-portrait-silhouette"><use href="#icon-char-opponent-a"></use></svg></div>
+              <span class="mockup-caption" style="border-top:none; padding-top:0;">variant a</span>
+            </div>
+            <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+              <div class="opponent-portrait-frame showcase"><svg class="opponent-portrait-silhouette"><use href="#icon-char-opponent-b"></use></svg></div>
+              <span class="mockup-caption" style="border-top:none; padding-top:0;">variant b</span>
+            </div>
+            <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+              <div class="opponent-portrait-frame showcase"><svg class="opponent-portrait-silhouette"><use href="#icon-char-opponent-c"></use></svg></div>
+              <span class="mockup-caption" style="border-top:none; padding-top:0;">variant c</span>
+            </div>
+          </div>
+        </div>
       </div>
-      <p class="mockup-note" style="flex:1; min-width:280px;">
-        3개 모두 같은 프레임(원형, <code>--steel</code> 테두리)과 같은 실루엣 기반(머리+어깨) — 헤어라인
-        디테일만 다르게 그려서 "동일 계열의 다른 스타일"로 읽히게 했다(개별 캐릭터가 아니라 하나의 제네릭
-        피규어의 3가지 겉모습이라는 인상). 몬스터 실루엣(art-direction.md §5)과 달리 투구 슬릿·후드 그림자 같은
-        얼굴 컷아웃을 넣지 않았다 — 컷아웃은 "가면/정체를 가림"이라는 몬스터·도적 계열 코드라서, 사람을
-        나타낼 때는 오히려 안 쓰는 쪽이 더 중립적이다. 프레임 색도 몬스터용 crimson/gold(적대/보스 신호) 대신
-        <code>--steel</code>을 썼다 — PvP 상대는 "위협으로 코드화된 몬스터"가 아니라 그냥 사람이라는 점을
-        색으로도 구분했다. 계정 아바타 시스템이 이번 마일스톤 스코프 밖(spec §4.4)이라 특정 계정에 묶이지
-        않는 순수 장식 요소이고, 세 변형 중 무엇을 보여줄지는 매치마다(예: 방 코드로 시드한) 의사난수로
-        고르는 것을 제안한다 — 선택 로직 자체는 게임 로직이므로 프로그래머 담당(Phase 4.7).
-      </p>
     </div>
+    <p class="mockup-note" style="margin-top:14px;">
+      실제 게임 내 크기(64px, <code>.opponent-portrait-frame</code>)는 rev.2부터 계속 안 바꿨다 —
+      <code>.opponent-identity</code> 가로줄이 이미 조밀해서 나온 레이아웃 제약이지 아트 판단이 아니고, rev.4는
+      바로 이 64px 크기에서 헤드리스 스크린샷으로 가독성을 확인한 뒤 반영했다(위 배틀 화면 두 상태의 상대
+      포트레이트가 실제 64px 크기). 위 비교의 104px 스와치는 104px(<code>.opponent-portrait-frame.showcase</code>,
+      이 목업 리뷰 전용 modifier — 게임 화면에는 안 씀)로 키워서 디테일을 보기 쉽게 한 것일 뿐, 판단 기준은
+      항상 64px 열이다. 3개 변형 모두 같은 프레임(원형, <code>--steel</code> 테두리)과 같은 몸통/머리 기반
+      shape — 헤어라인 디테일만 다르게 그려서 "동일 계열의 다른 스타일"로 읽히게 했다(개별 캐릭터가
+      아니라 하나의 제네릭 피규어의 3가지 겉모습이라는 인상, rev.2/rev.3과 동일한 의도). 몬스터 실루엣
+      (art-direction.md §5)과 달리 투구 슬릿·후드 그림자 같은 얼굴 컷아웃은 여전히 넣지 않았다 — 컷아웃은
+      "가면/정체를 가림"이라는 몬스터·도적 계열 코드라서, 사람을 나타낼 때는 오히려 안 쓰는 쪽이 더
+      중립적이다. 계정 아바타 시스템이 이번 마일스톤 스코프 밖(spec §4.4)이라 특정 계정에 묶이지 않는 순수
+      장식 요소이고, 세 변형 중 무엇을 보여줄지는 매치마다(예: 방 코드로 시드한) 의사난수로 고르는 것을
+      제안한다 — 선택 로직 자체는 게임 로직이므로 프로그래머 담당(Phase 4.7).
+    </p>
   </div>
 
   <div>
