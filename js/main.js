@@ -21,6 +21,7 @@ const App = (() => {
     el.menuDisplayName = document.getElementById('main-menu-display-name');
     el.btnLogout = document.getElementById('btn-logout');
     el.btnMenuDeck = document.getElementById('btn-menu-deck');
+    el.btnMenuHistory = document.getElementById('btn-menu-history');
     el.btnMenuPlay = document.getElementById('btn-menu-play');
     el.playGateHint = document.getElementById('play-gate-hint');
     el.btnPlayGateDeck = document.getElementById('btn-play-gate-deck');
@@ -124,8 +125,8 @@ const App = (() => {
     // driven by refreshPlayGate() above, not a static "곧 제공" stub anymore.
     el.btnMenuPlay.addEventListener('click', () => Match.showDeckSelect(account));
     el.btnPlayGateDeck.addEventListener('click', () => Deck.showSlots());
-    // 전적 (#btn-menu-history) is still a disabled "곧 제공" stub -- Phase 5
-    // (match history screen), not in this session's scope.
+    // 전적 (plan.md 5.1, spec §6.5) is now real: js/history.js.
+    el.btnMenuHistory.addEventListener('click', () => History.show());
     el.btnHowtoClose.addEventListener('click', closeHowto);
     checkSession();
   }
@@ -136,6 +137,7 @@ const App = (() => {
 document.addEventListener('DOMContentLoaded', () => {
   UI.init();
   Deck.init();
+  History.init();
   Battle.init();
   App.init();
 

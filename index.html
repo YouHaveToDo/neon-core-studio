@@ -235,12 +235,12 @@
 
   <!-- Main menu (plan.md 4.3, spec screen-flow §3). Post-login landing
        screen, replaces the old single "Begin Run" start screen entirely.
-       전적 remains a disabled "곧 제공" stub (Phase 5, not in scope). 플레이
-       is now real (plan.md 4.4-4.6, spec §6.1) -- js/main.js's
+       플레이 is real (plan.md 4.4-4.6, spec §6.1) -- js/main.js's
        refreshPlayGate() toggles its disabled state + the hint block below
        based on whether the account has at least one valid (20-30 card) deck
        slot, per spec §6.1's explicit main-menu-level gating requirement
-       (not just gating inside the deck-select screen). -->
+       (not just gating inside the deck-select screen). 전적 is now real too
+       (plan.md 5.1, spec §6.5) -- js/history.js. -->
   <section id="screen-main-menu" class="screen hidden">
     <div class="start-panel main-menu-panel">
       <h1>ARCANE LEDGER</h1>
@@ -255,7 +255,7 @@
       </div>
       <div class="main-menu-actions">
         <button id="btn-menu-deck" class="btn btn-primary">덱 관리</button>
-        <button id="btn-menu-history" class="btn btn-secondary btn-menu-soon" disabled title="곧 제공">전적 <span class="menu-soon-badge">곧 제공</span></button>
+        <button id="btn-menu-history" class="btn btn-secondary">전적</button>
         <button id="btn-menu-play" class="btn btn-primary" disabled>플레이</button>
       </div>
       <p id="play-gate-hint" class="play-gate-hint hidden">
@@ -465,6 +465,26 @@
     </div>
   </section>
 
+  <!-- Match history screen (plan.md 5.1, spec §6.5). Layout lifted from
+       assets/mockups/screen-match-history.html -- win/loss header is
+       derived client-side (js/history.js) from the fetched list, not a
+       separately stored counter, per spec §6.5. -->
+  <section id="screen-match-history" class="screen hidden">
+    <div class="overlay-panel history-panel">
+      <div class="history-topbar">
+        <button id="btn-history-back" class="btn btn-secondary">← 뒤로</button>
+      </div>
+      <h2>전적</h2>
+      <div id="history-status" class="deck-status hidden"></div>
+      <div class="history-header">
+        <div class="history-stat wins"><div class="stat-value" id="history-wins">0</div><div class="stat-label">승</div></div>
+        <div class="history-divider"></div>
+        <div class="history-stat losses"><div class="stat-value" id="history-losses">0</div><div class="stat-label">패</div></div>
+      </div>
+      <div id="history-list" class="history-list"></div>
+    </div>
+  </section>
+
   <!-- Deck-select-before-lobby screen (plan.md 4.4, spec §6.1). Reuses the
        same .deck-slot-tile look as 덱 관리's slot list (css/pvp-components.css)
        -- only valid (20-30 card) slots are clickable; invalid/empty slots
@@ -570,6 +590,7 @@
 <script src="js/ws.js"></script>
 <script src="js/screens.js"></script>
 <script src="js/deck.js"></script>
+<script src="js/history.js"></script>
 <script src="js/match.js"></script>
 <script src="js/battle.js"></script>
 <script src="js/ui.js"></script>

@@ -69,4 +69,9 @@ const API = {
     save: (slot, payload) => apiRequest(`/api/decks/${slot}`, { method: 'PUT', body: payload }),
     remove: (slot) => apiRequest(`/api/decks/${slot}`, { method: 'DELETE' }),
   },
+  matchHistory: {
+    // -> { matches: [ {opponentDisplayName, result: 'win'|'loss'|'win_forfeit', playedAt: 'YYYY-MM-DD'}, ... ] }
+    // Most recent first, capped at 100 server-side (spec §6.5).
+    list: () => apiRequest('/api/match-history'),
+  },
 };

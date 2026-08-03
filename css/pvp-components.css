@@ -4,16 +4,15 @@
    reused below).
 
    Lifted from assets/mockups/pvp-components.css §"3.3 deck slot list",
-   §"3.3 deck editor", and §"4.2 auth" verbatim (specs §5.4-§5.5 and §4.1-
-   §4.2 visuals are locked) -- this file intentionally does NOT pull in that
-   mockup's remaining sections (lobby/battle-opponent-panel/match-history),
-   since those belong to later phases (4.4+/5.x) not in scope this session;
-   lifting them now would be dead, untested CSS shipped ahead of the screens
-   that use it. When those phases start, copy the corresponding block(s)
-   over the same way. The "main menu" rules at the bottom of this file have
-   no mockup source (plan.md never assigned a pixel-artist task for it) --
-   they're a programmer-authored layout built from the same existing tokens/
-   components (`.start-panel`, `.btn`), noted in the task report.
+   §"3.3 deck editor", §"4.2 auth", §"4.10 lobby/rooms", §"4.9 battle:
+   opponent panel", §"4.7 disconnect overlay", and §"5.2 match history"
+   verbatim (all of specs §4-§9's locked visuals, as each phase reached
+   them). When a future phase needs a section not yet pulled in, copy the
+   corresponding mockup block over the same way. The "main menu" and
+   "4.8 match-end screen" rules have no mockup source (plan.md never
+   assigned a pixel-artist task for them) -- programmer-authored layouts
+   built from the same existing tokens/components (`.start-panel`, `.btn`),
+   noted in the relevant task reports.
 
    ============================================================= 4.2 auth */
 
@@ -260,3 +259,35 @@
    No mockup source (plan.md never assigned one) -- two buttons side by side
    from the existing .btn/.btn-primary/.btn-secondary components. */
 .match-end-actions { display: flex; gap: 10px; justify-content: center; margin-top: 6px; }
+
+/* ==================================================== 5.2 match history
+   .history-header/.history-list/.result-chip/etc. lifted verbatim from
+   assets/mockups/pvp-components.css's "5.2 match history" section (spec
+   §6.5 visuals). .history-panel/.history-topbar below are the same kind of
+   programmer-authored screen-chrome wrapper as .deck-management-page above
+   (the mockup only ever shows the bare .overlay-panel in its own review
+   layout, not wired into index.html's full-viewport .screen system with a
+   real back button). */
+
+.history-panel { max-width: 480px; text-align: left; }
+.history-panel h2 { text-align: center; }
+.history-topbar { display: flex; margin-bottom: 6px; }
+
+.history-header { display: flex; align-items: baseline; gap: 26px; justify-content: center; margin-bottom: 26px; }
+.history-stat { text-align: center; }
+.history-stat .stat-value { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 32px; font-weight: bold; }
+.history-stat.wins .stat-value { color: var(--gold); }
+.history-stat.losses .stat-value { color: var(--crimson); }
+.history-stat .stat-label { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); margin-top: 2px; }
+.history-divider { width: 1px; height: 36px; background: var(--line); align-self: center; }
+
+.history-list { display: flex; flex-direction: column; background: var(--bg-raised); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.history-row { display: flex; align-items: center; gap: 14px; padding: 12px 16px; }
+.history-row + .history-row { border-top: 1px solid var(--line); }
+.history-opponent { flex: 1; font-family: var(--font-serif); font-size: 13.5px; color: var(--ink); }
+.history-date { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 11.5px; color: var(--ink-faint); width: 88px; text-align: right; }
+.result-chip { font-size: 11px; font-weight: 700; letter-spacing: 0.02em; padding: 4px 10px; border-radius: 10px; white-space: nowrap; }
+.result-chip.win { background: rgba(212, 175, 55, 0.16); color: var(--gold); border: 1px solid rgba(212, 175, 55, 0.4); }
+.result-chip.loss { background: rgba(194, 59, 76, 0.14); color: var(--crimson); border: 1px solid rgba(194, 59, 76, 0.4); }
+.result-chip .forfeit-tag { font-weight: 400; color: var(--ink-faint); margin-left: 3px; }
+.history-empty { text-align: center; padding: 40px 20px; color: var(--ink-faint); font-size: 13px; }
