@@ -37,6 +37,21 @@
   <symbol id="icon-heart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
     <path d="M12 20C12 20 4 14.5 4 9C4 6.2 6.2 4 9 4C10.5 4 11.5 4.8 12 5.5C12.5 4.8 13.5 4 15 4C17.8 4 20 6.2 20 9C20 14.5 12 20 12 20Z" />
   </symbol>
+  <!-- Auth-screen icons (plan.md 4.1/4.2), lifted verbatim from
+       assets/mockups/screen-login.html's inline sprite. -->
+  <symbol id="icon-mail" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3" y="5" width="18" height="14" rx="2" />
+    <path d="M4 6.5L12 13L20 6.5" />
+  </symbol>
+  <symbol id="icon-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="5" y="11" width="14" height="10" rx="2" />
+    <path d="M8 11V7.5C8 5 9.8 3 12 3C14.2 3 16 5 16 7.5V11" />
+  </symbol>
+  <symbol id="icon-warning" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 3L22 20H2L12 3Z" />
+    <line x1="12" y1="9.5" x2="12" y2="14.5" />
+    <circle cx="12" cy="17.3" r="0.9" fill="currentColor" stroke="none" />
+  </symbol>
   <symbol id="icon-char-sentinel" viewBox="0 0 100 100" fill="currentColor" fill-rule="evenodd">
     <path d="M50 6 L64 16 L68 40 L56 48 L76 56 L88 96 L12 96 L24 56 L44 48 L32 40 L36 16 Z
              M42 24 L58 24 L58 32 L42 32 Z" />
@@ -61,17 +76,104 @@
     </div>
   </header>
 
-  <!-- Start screen -->
-  <section id="screen-start" class="screen">
-    <div class="start-panel">
+  <!-- Login/signup screen (plan.md 4.1, spec §4.1-§4.2). Per spec §4.3
+       there is no guest mode -- this (or screen-howto, its one pre-login
+       exception) is the only screen a non-logged-in visitor can ever see.
+       js/main.js gates entry on load via GET /api/auth/me. One screen with
+       a tab switch between the two forms, per spec §4.3's recommendation. -->
+  <section id="screen-login" class="screen hidden">
+    <div class="overlay-panel auth-panel">
+      <h1 class="auth-brand">ARCANE LEDGER</h1>
+      <p class="subtitle">오컬트 장부 온라인 1:1 대전</p>
+      <div class="auth-tabs">
+        <button id="auth-tab-login" type="button" class="auth-tab active">로그인</button>
+        <button id="auth-tab-signup" type="button" class="auth-tab">회원가입</button>
+      </div>
+
+      <!-- novalidate: our own JS handles all validation with spec-exact
+           Korean copy (§4.1-§4.2) -- the browser's native constraint
+           validation would otherwise silently block form submission
+           (and show its own untranslated UI) before our handler ever runs. -->
+      <form id="auth-form-login" class="auth-form" novalidate>
+        <div class="field">
+          <span class="field-label">이메일</span>
+          <div class="field-input" id="login-email-wrap">
+            <svg class="icon field-icon"><use href="#icon-mail"></use></svg>
+            <input type="email" id="login-email" autocomplete="username" placeholder="you@example.com" />
+          </div>
+        </div>
+        <div class="field">
+          <span class="field-label">비밀번호</span>
+          <div class="field-input" id="login-password-wrap">
+            <svg class="icon field-icon"><use href="#icon-lock"></use></svg>
+            <input type="password" id="login-password" autocomplete="current-password" placeholder="8자 이상" />
+          </div>
+        </div>
+        <p id="login-error" class="field-error hidden"><svg class="icon"><use href="#icon-warning"></use></svg><span id="login-error-text"></span></p>
+        <button type="submit" id="login-submit" class="btn btn-primary auth-submit">로그인</button>
+      </form>
+
+      <form id="auth-form-signup" class="auth-form hidden" novalidate>
+        <div class="field">
+          <span class="field-label">이메일</span>
+          <div class="field-input" id="signup-email-wrap">
+            <svg class="icon field-icon"><use href="#icon-mail"></use></svg>
+            <input type="email" id="signup-email" autocomplete="username" placeholder="you@example.com" />
+          </div>
+          <p id="signup-email-error" class="field-error hidden"><svg class="icon"><use href="#icon-warning"></use></svg><span></span></p>
+        </div>
+        <div class="field">
+          <span class="field-label">비밀번호</span>
+          <div class="field-input" id="signup-password-wrap">
+            <svg class="icon field-icon"><use href="#icon-lock"></use></svg>
+            <input type="password" id="signup-password" autocomplete="new-password" placeholder="8자 이상" />
+          </div>
+          <p id="signup-password-error" class="field-error hidden"><svg class="icon"><use href="#icon-warning"></use></svg><span></span></p>
+        </div>
+        <div class="field">
+          <span class="field-label">비밀번호 확인</span>
+          <div class="field-input" id="signup-confirm-wrap">
+            <svg class="icon field-icon"><use href="#icon-lock"></use></svg>
+            <input type="password" id="signup-confirm" autocomplete="new-password" placeholder="다시 입력" />
+          </div>
+          <p id="signup-confirm-error" class="field-error hidden"><svg class="icon"><use href="#icon-warning"></use></svg><span></span></p>
+        </div>
+        <div class="field">
+          <span class="field-label">표시 이름 (2~16자)</span>
+          <div class="field-input" id="signup-name-wrap">
+            <input type="text" id="signup-name" maxlength="16" placeholder="상대에게 보이는 이름" />
+          </div>
+          <p id="signup-name-error" class="field-error hidden"><svg class="icon"><use href="#icon-warning"></use></svg><span></span></p>
+        </div>
+        <button type="submit" id="signup-submit" class="btn btn-primary auth-submit">회원가입</button>
+      </form>
+
+      <a id="auth-howto-link" class="auth-howto-link" href="#">플레이 방법 보기</a>
+    </div>
+  </section>
+
+  <!-- Main menu (plan.md 4.3, spec screen-flow §3). Post-login landing
+       screen, replaces the old single "Begin Run" start screen entirely.
+       전적/플레이 are disabled "곧 제공" stub buttons this session -- 전적 is
+       Phase 5, 플레이's real target (deck-select -> lobby, spec §6.1-§6.2)
+       is Phase 4.4+, neither built yet (see js/main.js report). -->
+  <section id="screen-main-menu" class="screen hidden">
+    <div class="start-panel main-menu-panel">
       <h1>ARCANE LEDGER</h1>
-      <p class="subtitle">오컬트 장부 던전 덱빌더 — 버티컬 슬라이스</p>
-      <button id="btn-begin" class="btn btn-primary">Begin Run</button>
-      <!-- TEMPORARY entry point (plan.md Phase 3 scope). There is no main
-           menu yet (Phase 4.3) -- once it exists, "덱 관리" moves there and
-           this button goes away. Kept here only so the deck screens
-           (Deck.showSlots(), js/deck.js) are reachable at all before then. -->
-      <button id="btn-deck-manage" class="btn btn-secondary" style="margin-top:10px;">덱 관리</button>
+      <p class="subtitle">오컬트 장부 온라인 1:1 대전</p>
+      <div class="main-menu-account">
+        <span id="main-menu-display-name" class="main-menu-name"></span>
+        <!-- Always visible on the main menu, per spec §4.2 -- and, per the
+             same clause, this button/markup must never appear on
+             screen-battle (it doesn't: this section is entirely separate
+             markup, nothing shared with #screen-battle). -->
+        <button id="btn-logout" class="btn btn-secondary btn-logout">로그아웃</button>
+      </div>
+      <div class="main-menu-actions">
+        <button id="btn-menu-deck" class="btn btn-primary">덱 관리</button>
+        <button id="btn-menu-history" class="btn btn-secondary btn-menu-soon" disabled title="곧 제공">전적 <span class="menu-soon-badge">곧 제공</span></button>
+        <button id="btn-menu-play" class="btn btn-secondary btn-menu-soon" disabled title="곧 제공">플레이 <span class="menu-soon-badge">곧 제공</span></button>
+      </div>
     </div>
   </section>
 
@@ -201,8 +303,6 @@
   <section id="screen-deck-slots" class="screen hidden">
     <div class="deck-management-page">
       <div class="deck-management-header">
-        <!-- TEMPORARY: "뒤로" goes to screen-start until the main menu
-             (Phase 4.3) exists to return to instead. -->
         <button id="btn-deck-slots-back" class="btn btn-secondary">← 뒤로</button>
         <h2>덱 관리</h2>
       </div>
@@ -270,8 +370,10 @@
 <script src="js/data.js"></script>
 <script src="js/state.js"></script>
 <script src="js/api.js"></script>
+<script src="js/screens.js"></script>
 <script src="js/deck.js"></script>
 <script src="js/ui.js"></script>
+<script src="js/auth.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

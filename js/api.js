@@ -50,6 +50,18 @@ async function apiRequest(path, options) {
 
 const API = {
   ApiError,
+  auth: {
+    // payload: { email, password, confirmPassword, displayName } -> { account: {id,email,displayName} }
+    // 400 -> { fieldErrors: { email?, password?, confirmPassword?, displayName? } } (spec §4.1)
+    signup: (payload) => apiRequest('/api/auth/signup', { method: 'POST', body: payload }),
+    // payload: { email, password } -> { account: {id,email,displayName} }
+    // 401 -> { error: <unified message> } (spec §4.2, never field-specific)
+    login: (payload) => apiRequest('/api/auth/login', { method: 'POST', body: payload }),
+    // -> null (204 No Content)
+    logout: () => apiRequest('/api/auth/logout', { method: 'POST' }),
+    // -> { account: {id,email,displayName} }; 401 (ApiError) if no valid session
+    me: () => apiRequest('/api/auth/me'),
+  },
   decks: {
     // -> { slots: [ {slot,name,cards,total,valid,updatedAt} | null, ... ] }, always length 3
     list: () => apiRequest('/api/decks'),

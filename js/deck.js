@@ -4,17 +4,14 @@
  * from the AL/UI battle-engine pair: deck management has nothing to do with
  * AL.state (battle state) and doesn't need to participate in AL.onChange's
  * render loop, so it manages its own small piece of DOM independently, only
- * ever showing/hiding whole <section class="screen"> elements (same
- * `.screen`/`.hidden` convention ui.js uses, via the local `showAppScreen`
- * helper below).
+ * ever showing/hiding whole <section class="screen"> elements via the
+ * shared `Screens.show()` helper (js/screens.js).
  *
- * IMPORTANT LIMITATION (see task report): there is no login/signup UI yet
- * (Phase 4.1), so nothing in this file can create an authenticated browser
- * session on its own. Every API call below will 401 until a session cookie
- * already exists (e.g. from a prior `fetch('/api/auth/login', ...)` run
- * some other way). The slot-list screen handles a 401 by showing an inline
- * "로그인이 필요합니다" message rather than crashing, but real click-through
- * testing of this UI has to wait for Phase 4.1.
+ * As of plan.md 4.1, real login/signup UI exists (js/auth.js) and the app
+ * gates entry on it (js/main.js) -- every screen in this file is reached
+ * only after a session cookie already exists, so the 401 fallback message
+ * below is now just defense in depth (e.g. a session expiring mid-visit),
+ * not the expected common case it was before this task.
  */
 const Deck = (() => {
   const DECK_MIN_SIZE = 20;
@@ -58,12 +55,6 @@ const Deck = (() => {
 
     el.modalRoot = document.getElementById('modal-root');
     el.modalBody = document.getElementById('modal-body');
-  }
-
-  function showAppScreen(id) {
-    document.querySelectorAll('.screen').forEach((node) => {
-      node.classList.toggle('hidden', node.id !== id);
-    });
   }
 
   // ---- helpers ------------------------------------------------------------
@@ -112,7 +103,7 @@ const Deck = (() => {
   // ---- slot list screen (§5.4) --------------------------------------------
   async function showSlots() {
     state.editing = null;
-    showAppScreen('screen-deck-slots');
+    Screens.show('screen-deck-slots');
     el.slotsList.innerHTML = '';
     setSlotsStatus('불러오는 중...');
     try {
@@ -124,7 +115,7 @@ const Deck = (() => {
     } catch (err) {
       state.loadError = err;
       const message = err instanceof API.ApiError && err.status === 401
-        ? '로그인이 필요합니다. (로그인 화면은 아직 준비 중입니다 -- Phase 4.1)'
+        ? '세션이 만료되었습니다. 다시 로그인해주세요.'
         : `덱 목록을 불러오지 못했습니다: ${err.message}`;
       setSlotsStatus(message);
     }
@@ -279,7 +270,7 @@ const Deck = (() => {
       name: existing ? existing.name : `덱 ${slot}`,
       cards: existing ? { ...existing.cards } : {},
     };
-    showAppScreen('screen-deck-editor');
+    Screens.show('screen-deck-editor');
     setEditorError(null);
     renderEditor();
     el.editorNameInput.focus();
@@ -466,12 +457,12 @@ const Deck = (() => {
     }
     state.editing = null;
     renderSlotList();
-    showAppScreen('screen-deck-slots');
+    Screens.show('screen-deck-slots');
   }
 
   function init() {
     cache();
-    el.btnSlotsBack.addEventListener('click', () => showAppScreen('screen-start'));
+    el.btnSlotsBack.addEventListener('click', () => Screens.show('screen-main-menu'));
     el.btnEditorDone.addEventListener('click', onDone);
     el.editorNameInput.addEventListener('input', onNameInput);
     el.editorNameInput.addEventListener('blur', onNameBlur);

@@ -27,14 +27,6 @@ const UI = (() => {
   function cache() {
     el.roomLabel = document.getElementById('room-label');
 
-    el.screens = {
-      start: document.getElementById('screen-start'),
-      howto: document.getElementById('screen-howto'),
-      battle: document.getElementById('screen-battle'),
-      victory: document.getElementById('screen-victory'),
-      defeat: document.getElementById('screen-defeat'),
-    };
-
     el.btnHowtoTop = document.getElementById('btn-howto');
     el.howtoCardSlot = document.getElementById('howto-card-slot');
     el.btnHowtoClose = document.getElementById('btn-howto-close');
@@ -63,10 +55,13 @@ const UI = (() => {
     el.btnEndTurn = document.getElementById('btn-end-turn');
   }
 
+  // `name` is one of AL.state.screen's values ('start'|'howto'|'battle'|
+  // 'victory'|'defeat'); the corresponding element id is always
+  // `screen-${name}`. Delegates to the shared Screens helper (js/screens.js)
+  // so this never disagrees with deck.js/auth.js/main.js about what else on
+  // the page needs to be hidden at the same time.
   function showScreen(name) {
-    Object.entries(el.screens).forEach(([key, node]) => {
-      node.classList.toggle('hidden', key !== name);
-    });
+    Screens.show('screen-' + name);
   }
 
   function render(state) {
@@ -251,15 +246,23 @@ const UI = (() => {
   }
 
   // ---- How to Play (docs/design/onboarding.md) ---------------------------
-  function renderHowto(state) {
-    el.btnHowtoClose.textContent = state.howtoContext === 'first' ? '시작하기' : '닫기';
-
+  // Split out from renderHowto() (plan.md 4.1) so the pre-login "플레이 방법
+  // 보기" entry point (spec §4.3, wired in main.js) can populate the demo
+  // card without going through AL's render pipeline at all -- that path
+  // never touches AL.state, since How to Play is the one screen explicitly
+  // reachable before login.
+  function ensureHowtoDemoCard() {
     if (!el.howtoCardSlot.firstChild) {
       // Reuse the same card-rendering logic as the hand so the example is a
       // real, in-sync DOM element, not a static mockup.
       const demoCard = buildCardNode('strike', {});
       el.howtoCardSlot.appendChild(demoCard);
     }
+  }
+
+  function renderHowto(state) {
+    el.btnHowtoClose.textContent = state.howtoContext === 'first' ? '시작하기' : '닫기';
+    ensureHowtoDemoCard();
   }
 
   // ---- FX (damage numbers, shake, heal) ---------------------------------
@@ -309,5 +312,5 @@ const UI = (() => {
     AL.onFx(handleFx);
   }
 
-  return { init, render };
+  return { init, render, ensureHowtoDemoCard };
 })();

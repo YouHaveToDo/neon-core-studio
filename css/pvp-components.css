@@ -1,15 +1,41 @@
-/* ARCANE LEDGER — Online PvP visual additions, deck-management subset.
-   Extends css/style.css (loaded first, defines --bg/--gold/etc. tokens and
-   the .card / .btn / .overlay-panel components reused below).
+/* ARCANE LEDGER — Online PvP visual additions, deck-management + auth
+   subset. Extends css/style.css (loaded first, defines --bg/--gold/etc.
+   tokens and the .card / .btn / .overlay-panel / .start-panel components
+   reused below).
 
-   Lifted from assets/mockups/pvp-components.css §"3.3 deck slot list" and
-   §"3.3 deck editor" verbatim (spec §5.4-§5.5 visuals are locked, per plan.md
-   3.3) -- this file intentionally does NOT pull in that mockup's other
-   sections (auth/lobby/battle-opponent-panel/match-history), since those
-   belong to later phases (4.x/5.x) not in scope this session; lifting them
-   now would be dead, untested CSS shipped ahead of the screens that use it.
-   When those phases start, copy the corresponding block(s) over the same
-   way. */
+   Lifted from assets/mockups/pvp-components.css §"3.3 deck slot list",
+   §"3.3 deck editor", and §"4.2 auth" verbatim (specs §5.4-§5.5 and §4.1-
+   §4.2 visuals are locked) -- this file intentionally does NOT pull in that
+   mockup's remaining sections (lobby/battle-opponent-panel/match-history),
+   since those belong to later phases (4.4+/5.x) not in scope this session;
+   lifting them now would be dead, untested CSS shipped ahead of the screens
+   that use it. When those phases start, copy the corresponding block(s)
+   over the same way. The "main menu" rules at the bottom of this file have
+   no mockup source (plan.md never assigned a pixel-artist task for it) --
+   they're a programmer-authored layout built from the same existing tokens/
+   components (`.start-panel`, `.btn`), noted in the task report.
+
+   ============================================================= 4.2 auth */
+
+.auth-panel { max-width: 380px; }
+.auth-brand { color: var(--gold); font-family: var(--font-serif); font-size: 24px; margin: 0 0 4px; }
+.auth-tabs { display: flex; gap: 6px; background: var(--bg-inset); border: 1px solid var(--line); border-radius: 8px; padding: 3px; margin-bottom: 22px; }
+.auth-tab { flex: 1; border: none; background: transparent; color: var(--ink-faint); font-size: 12.5px; font-weight: 600; font-family: var(--font-sans); padding: 8px 0; border-radius: 6px; transition: background 0.15s ease, color 0.15s ease; }
+.auth-tab.active { background: var(--bg-raised); color: var(--gold); box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35); }
+.auth-form { display: flex; flex-direction: column; gap: 14px; text-align: left; }
+.field { display: flex; flex-direction: column; gap: 5px; }
+.field-label { font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); }
+.field-input { display: flex; align-items: center; gap: 8px; background: var(--bg-inset); border: 1px solid var(--line); border-radius: 7px; padding: 0 10px; transition: border-color 0.12s ease; }
+.field-input:focus-within { border-color: var(--gold); }
+.field-input.field-invalid { border-color: var(--crimson); }
+.field-icon { width: 15px; height: 15px; color: var(--ink-faint); flex-shrink: 0; }
+.field-input input { flex: 1; min-width: 0; border: none; background: transparent; color: var(--ink); font-family: var(--font-sans); font-size: 13px; padding: 10px 0; outline: none; }
+.field-input input::placeholder { color: var(--ink-faint); }
+.field-error { margin: -6px 0 0; font-size: 11px; color: var(--crimson); display: flex; align-items: center; gap: 5px; }
+.field-error .icon { width: 12px; height: 12px; flex-shrink: 0; }
+.auth-submit { width: 100%; margin-top: 4px; }
+.auth-howto-link { display: block; margin-top: 18px; font-size: 11.5px; color: var(--ink-faint); text-decoration: underline; text-underline-offset: 2px; }
+.auth-howto-link:hover { color: var(--ink-dim); }
 
 /* ==================================================== 3.3 deck slot list */
 
@@ -87,3 +113,23 @@
 .modal-actions { display: flex; gap: 10px; justify-content: center; margin-top: 18px; }
 .btn-delete { border-color: var(--crimson); color: var(--crimson); }
 .btn-delete:hover { border-color: var(--crimson); background: rgba(194, 59, 76, 0.1); }
+
+/* Generic disabled state -- .btn had no disabled rule before this task
+   (the only disabled button in the codebase was .btn-end-turn, which
+   defines its own). Needed now for the main menu's 전적/플레이 stubs. */
+.btn:disabled { opacity: 0.4; cursor: default; pointer-events: none; }
+.btn:disabled:hover { border-color: var(--line); }
+
+/* ======================================================= 4.3 main menu
+   No pixel-artist mockup exists for this screen (plan.md never assigned
+   one) -- built from the same tokens/components as everything else here
+   (.start-panel base from css/style.css, .btn variants), not a new visual
+   language. */
+
+.main-menu-panel { display: flex; flex-direction: column; }
+.main-menu-account { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 4px 0 22px; padding-bottom: 16px; border-bottom: 1px dashed var(--line); }
+.main-menu-name { font-family: var(--font-serif); color: var(--gold); font-size: 14px; }
+.btn-logout { padding: 6px 14px; font-size: 11.5px; }
+.main-menu-actions { display: flex; flex-direction: column; gap: 12px; }
+.btn-menu-soon { position: relative; }
+.menu-soon-badge { display: inline-block; margin-left: 8px; font-size: 9px; letter-spacing: 0.04em; color: var(--ink-faint); background: var(--bg-inset); border: 1px solid var(--line); border-radius: 8px; padding: 2px 7px; vertical-align: middle; }
