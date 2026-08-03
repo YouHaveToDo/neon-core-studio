@@ -10,11 +10,13 @@
     "dev": "node --watch src/index.js",
     "migrate": "node scripts/migrate.js",
     "smoke-test": "node scripts/smoke-test.js",
+    "deck-smoke-test": "node scripts/deck-smoke-test.js",
     "ws-smoke-test": "node scripts/ws-smoke-test.js"
   },
   "dependencies": {
     "argon2": "^0.41.1",
     "cookie": "^0.7.2",
+    "cors": "^2.8.6",
     "dotenv": "^16.4.5",
     "express": "^4.21.2",
     "pg": "^8.13.1",

@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
 <title>ARCANE LEDGER</title>
 <link rel="stylesheet" href="css/style.css" />
+<link rel="stylesheet" href="css/pvp-components.css" />
 </head>
 <body>
 
@@ -66,6 +67,11 @@
       <h1>ARCANE LEDGER</h1>
       <p class="subtitle">오컬트 장부 던전 덱빌더 — 버티컬 슬라이스</p>
       <button id="btn-begin" class="btn btn-primary">Begin Run</button>
+      <!-- TEMPORARY entry point (plan.md Phase 3 scope). There is no main
+           menu yet (Phase 4.3) -- once it exists, "덱 관리" moves there and
+           this button goes away. Kept here only so the deck screens
+           (Deck.showSlots(), js/deck.js) are reachable at all before then. -->
+      <button id="btn-deck-manage" class="btn btn-secondary" style="margin-top:10px;">덱 관리</button>
     </div>
   </section>
 
@@ -191,6 +197,50 @@
     </div>
   </section>
 
+  <!-- Deck management: slot list screen (plan.md 3.1, spec §5.4) -->
+  <section id="screen-deck-slots" class="screen hidden">
+    <div class="deck-management-page">
+      <div class="deck-management-header">
+        <!-- TEMPORARY: "뒤로" goes to screen-start until the main menu
+             (Phase 4.3) exists to return to instead. -->
+        <button id="btn-deck-slots-back" class="btn btn-secondary">← 뒤로</button>
+        <h2>덱 관리</h2>
+      </div>
+      <div id="deck-slots-status" class="deck-status hidden"></div>
+      <div id="deck-slots-list" class="deck-slots"></div>
+    </div>
+  </section>
+
+  <!-- Deck management: editor screen (plan.md 3.2, spec §5.5) -->
+  <section id="screen-deck-editor" class="screen hidden">
+    <div class="deck-management-page">
+      <div class="editor-shell">
+        <div class="editor-topbar">
+          <input type="text" id="deck-editor-name-input" class="deck-name-input" maxlength="20" placeholder="덱 이름 (선택)" />
+          <span id="deck-editor-counter" class="deck-counter"></span>
+          <button id="btn-deck-editor-done" class="btn btn-primary btn-done">완료</button>
+        </div>
+        <p id="deck-editor-hint" class="editor-hint hidden">최소 20장이 필요합니다</p>
+        <p id="deck-editor-error" class="editor-hint hidden"></p>
+        <div class="editor-layout">
+          <div class="pool-section">
+            <div class="pool-section-label">카드 풀 · 14종 전부 오픈 (Attack → Skill → Power)</div>
+            <div id="deck-editor-pool-grid" class="pool-grid"></div>
+          </div>
+          <div class="decklist-section">
+            <div id="deck-editor-decklist-label" class="decklist-section-label">이 덱</div>
+            <div id="deck-editor-decklist" class="deck-list"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Shared modal (new-deck-name prompt, delete confirm — spec §5.3/§5.4) -->
+  <div id="modal-root" class="modal-backdrop hidden">
+    <div id="modal-body" class="overlay-panel" style="max-width:360px;"></div>
+  </div>
+
   <!-- Reward/Rest screens removed: spec-online-pvp.md §2 kills the dungeon-run
        structure (reward-card-pick, rest-heal) entirely — a PvP match is a
        standalone single battle. See online-pvp-plan.md task 2.4. -->
@@ -219,6 +269,8 @@
 
 <script src="js/data.js"></script>
 <script src="js/state.js"></script>
+<script src="js/api.js"></script>
+<script src="js/deck.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/main.js"></script>
 </body>

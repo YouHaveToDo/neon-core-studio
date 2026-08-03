@@ -11,8 +11,13 @@
 
 document.addEventListener('DOMContentLoaded', () => {
   UI.init();
+  Deck.init();
 
   document.getElementById('btn-begin').addEventListener('click', () => AL.startMatch());
+  // TEMPORARY entry point into deck management (plan.md Phase 3) -- see the
+  // matching comment on #btn-deck-manage in index.html. Moves under the real
+  // main menu once Phase 4.3 exists.
+  document.getElementById('btn-deck-manage').addEventListener('click', () => Deck.showSlots());
   document.getElementById('btn-howto').addEventListener('click', () => AL.openHowto());
   document.getElementById('btn-howto-close').addEventListener('click', () => AL.closeHowto());
   document.getElementById('btn-end-turn').addEventListener('click', () => AL.endTurn());
