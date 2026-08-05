@@ -456,3 +456,286 @@ matching update.
 - Starter deck under test: `/Users/jungjongchan/Desktop/company/server/src/lib/starterDeck.js`
 - Existing programmer smoke tests read/re-run: `/Users/jungjongchan/Desktop/company/server/scripts/smoke-test.js`,
   `deck-smoke-test.js`, `ws-smoke-test.js`, `pvp-smoke-test.js`, `match-history-smoke-test.js`
+
+---
+
+## Follow-up verification — re-check of commit `f157db8`'s fixes (2026-08-05)
+
+**Scope:** independently re-verifying the 3 fixes commit `f157db8` ("Fix QA blocker +
+2 major findings from online-pvp-milestone report") claims for Findings 1/2/3 above,
+plus a fresh confirmation of Finding 4's doc-only resolution. Same rigor as the
+original pass: real spawned server, real Postgres, real client bundle, Playwright
+with **two separate `chromium.launch()` processes** (not contexts) for anything
+frozen-client-related, and direct DB queries rather than trusting WS replies alone.
+Did not just read/trust the programmer's own new scripts
+(`frozen-client-turn-timeout-test.js`, `double-disconnect-smoke-test.js`,
+`deck-size-relay-smoke-test.js`) — independent repro scripts were written from
+scratch based on the original report's own methodology, run against a live stack,
+and the programmer's own scripts were *also* run fresh for comparison (all in this
+session's scratchpad, not part of the repo; exact evidence reproduced inline below).
+
+### Updated verdict
+
+**Still not ready to ship as-is.** Findings 2 and 3 are genuinely, fully fixed —
+verified independently with the same rigor as the original findings, including
+edge cases the programmer's own tests didn't try. Finding 1 (the Blocker) is
+**mostly fixed** — the headline failure mode (opponent permanently stuck, 6→11 hand
+corruption) is confirmed gone in both original repros — **but re-verification found
+a new, real state-corruption regression in the exact same code path the fix
+introduced**, not present pre-fix, and not caught by the programmer's own new
+regression test because that test never has the passive player actually act during
+the reconciliation window. Recommend: fix the new regression (below) and add
+regression coverage for it before calling Finding 1 closed; Findings 2/3 can ship
+as-is.
+
+### Finding 1 re-check: turn-timeout propagation — Blocker's headline failure is fixed; a new regression was found
+
+**What holds (re-confirmed, both original repros, two separate chromium processes):**
+- **Repro A (frozen client):** passive client's `AL.state.turn` now flips to
+  `'player'` driven by the server's `turn_started` broadcast, not by waiting for the
+  frozen tab to wake up. Measured flip at **+5904–5911ms** against a
+  `PVP_TURN_TIMEOUT_MS=6000` deadline, across multiple runs — close to the server's
+  deadline, not the ~8500ms "matches freeze end" signature the original report
+  documented as the bug.
+- Passive client's hand stays at the correct **6 cards** at the moment of flip — the
+  original 6→11 corruption does not reproduce.
+- Repro B (How-to-Play left open past the active player's own timeout): passive
+  client's turn now starts on schedule even though the active player never
+  dismissed the overlay; the active player's own turn is correctly shown as over
+  once they finally return to battle (previously stayed `'player'` indefinitely).
+- The programmer's own `server/scripts/frozen-client-turn-timeout-test.js` was also
+  run fresh (not just read) and passes cleanly for both scenarios — consistent with
+  the above.
+
+**What's newly broken — [MAJOR, new regression, not in the original report]
+Duplicate turn-boundary reconciliation silently resets the passive player's mana
+and/or block if they act before the frozen client's stale peer message finally
+arrives**
+
+**Root cause (confirmed by code):** The fix added `reconcileMyTurnStart()`
+(`js/state.js`), called from `js/battle.js`'s `handleTurnStarted()` the moment the
+server's `turn_started` broadcast names this client. It guards against re-running
+itself (`if (state.turn === 'player') return;`) before calling
+`applyRemoteEndTurn()`. But the frozen client, once it wakes up, *still* runs its
+own queued `handleTurnTimeout()` → `AL.endTurn()` → emits a real peer `endTurn`
+`action` message, exactly as it did pre-fix. That real action arrives on the
+passive client separately and is routed through `applyRemoteAction()` →
+`applyRemoteEndTurn()` — called **completely unconditionally, with no check that
+this turn boundary was already reconciled** by the server-driven path moments
+earlier. `applyRemoteEndTurn()` ends in `localTurnStart()`, which unconditionally
+resets `state.player.block = 0` and `state.player.mana = state.player.maxMana`
+every time it runs (its only guard, `hand.length === 0`, protects against a double
+*draw*, not against the block/mana reset). So if the passive player plays any card
+during the gap between the server-driven reconciliation and the frozen client's
+eventually-arriving real `endTurn`, that card's mana cost is silently refunded
+and/or its block is silently wiped the moment the stale message lands — invisibly,
+with no error, no desync warning, nothing in the UI to indicate it happened. This
+exact double-invocation risk did not exist pre-fix: pre-fix, `applyRemoteEndTurn()`
+was only ever reachable via the real peer action, so it only ever ran once per turn
+boundary. The fix introduced a second, uncoordinated call path into the same
+non-idempotent function.
+
+**Repro (`qa-reconcile-race-test.js`, this session's scratchpad — same two-separate-
+chromium-process methodology as Finding 1's original repros):**
+1. Server run with `PVP_TURN_TIMEOUT_MS=6000`. Two separate `chromium.launch()`
+   processes, real signup/lobby/room, both dismiss How-to-Play, reach battle.
+2. Freeze the active player's JS main thread for 10000ms (chosen so the freeze ends
+   with a comfortable ~2s margin *before* the passive player's own subsequent
+   turn-timeout deadline would elapse — using a value too close to
+   `2×PVP_TURN_TIMEOUT_MS` introduces a **second, legitimate** timeout that
+   confounds the result; this margin requirement itself isn't documented anywhere
+   and is easy to get wrong when writing a repro/regression test for this).
+3. Poll the passive client until `AL.state.turn` flips to `'player'` (confirmed
+   ~5900ms, matching the fix above).
+4. **Immediately** play the first affordable card in the passive client's hand
+   (`AL.selectCard`/`AL.targetOpponent`), recording the resulting mana/block.
+5. Wait for the frozen tab to wake up and its stale queued messages to fully
+   propagate and settle (~1.5s after the freeze ends).
+6. Re-read the passive client's `AL.state.player.mana` / `.block` / `.hand.length`.
+
+   **Run 1** (played `twinStrike`, cost 1): mana after play = **2**. Mana after the
+   stale message settled = **3** (`FAIL` — silently restored to full). Hand count
+   correctly unchanged (5 → 5, no double-draw). Turn correctly stayed `'player'`
+   (not silently ended).
+
+   **Run 2** (played `quickGuard`, which grants 4 block): block after play = **4**.
+   Block after the stale message settled = **0** (`FAIL` — silently wiped). Mana
+   correctly unchanged (both cases coincidentally 3, since `quickGuard` costs 0).
+
+   Reproduced identically across **4 separate runs** (2 targeting mana via an
+   attack/skill card, 2 targeting block via `quickGuard`) — 100% reproduction rate,
+   not a flaky race. In every run: `turn` stayed correctly `'player'` and `hand`
+   count stayed correct (so the original 6→11-style corruption genuinely does not
+   recur) — only mana/block silently reset.
+
+**Why this matters in real play, not just as a timing curiosity:** the precondition
+(opponent client frozen/unresponsive) is the exact same real-world scenario the
+original Blocker repro used — not hypothetical. And the very first thing a player
+does once they notice it's newly their turn is play a card — that's the entire
+point of it being their turn. So this isn't a rare edge case layered on top of an
+already-rare precondition; it's the *expected, normal* next action inside the
+window this bug lives in. Worst case impact: a player spends a card to gain block
+specifically to survive the opponent's next attack, and that block silently
+vanishes without their hand or turn state showing anything wrong — they take full
+damage they had every reason to believe they'd blocked.
+
+**Severity reasoning:** Major, not Blocker — distinguishing it from the original
+Finding 1: the actual promise the Blocker was about (turn genuinely advances off
+the server's clock, match doesn't permanently stall, hand isn't duplicated) is
+confirmed delivered in all 4 runs above; what's broken here is a narrower
+(mana/block only, not turn-stall) but still real and silent resource-corruption bug
+in the same code path. Given it reopens exactly the kind of "state corruption on
+recovery" concern the original Blocker was scored on, this should block calling
+Finding 1 fully closed, even though it doesn't warrant the same severity tier as
+the original.
+
+**Why the programmer's own regression test didn't catch this:** `frozen-client-
+turn-timeout-test.js` polls the passive client's `turn`/`hand.length` during and
+after the freeze but never has the passive client actually play a card or otherwise
+act during the reconciliation window — it only observes, never acts. The bug only
+manifests if the passive player takes an action in that window, which is normal
+play, not an unusual test case.
+
+**Suggested area to look at (not a fix — QA doesn't prescribe implementation):**
+`applyRemoteEndTurn()` (`js/state.js`) is reachable two ways now —
+`reconcileMyTurnStart()` (which already guards against a same-boundary re-run) and
+`applyRemoteAction()`'s `'endTurn'` case (which has no such guard at all) — with no
+shared coordination between the two call sites about whether a given turn boundary
+was already reconciled. `applyRemoteTurnStart()` has the same unguarded-double-call
+shape, though its blast radius is smaller (it only resets the mirrored
+`state.opponent` view, not the local player's own resources).
+
+### Finding 2 re-check: simultaneous double-disconnect — fix holds
+
+Verified with a from-scratch raw-WS repro (`qa-double-disconnect-recheck.js`, this
+session's scratchpad) against a real spawned server + real Postgres, `match_history`
+checked by querying the DB directly (not trusting the server's own WS replies):
+
+- **Scenario A (both sockets closed back-to-back, neither reconnects):** after
+  waiting past the grace window, `match_history` now correctly has exactly **one
+  `'void'` row for each account**, each correctly naming the other as opponent
+  (previously: `[]` for both, confirmed in the original report). A late rejoin
+  attempt with the same room code correctly gets `ROOM_NOT_FOUND` (room is properly
+  torn down, not leaked).
+- **Scenario B (single disconnect, reconnect well within grace — sanity check the
+  fix didn't break the ordinary path):** reconnect succeeds normally
+  (`reconnected: true`), opponent gets `opponent_reconnected`, and — checked
+  specifically because the task flagged it — **no `match_history` row at all** is
+  written for a match that recovered normally, even after waiting past what would
+  have been the grace deadline. The ordinary reconnect path is unaffected by the
+  fix.
+- **Scenario C (both disconnect simultaneously, but ONE side reconnects within
+  grace):** that side reconnects successfully into the room despite the momentary
+  double-disconnect, and once the other side's grace period lapses without them
+  returning, the outcome correctly resolves as a normal **`win_forfeit` /
+  `loss`** pair — not forced into `'void'` just because both were briefly gone at
+  the same instant. This confirms the fix's `graceExpired` bookkeeping correctly
+  distinguishes "both actually gone" from "both briefly dropped, one came back."
+
+Also independently confirmed the programmer's "new `void` result type" claim by
+querying the DB directly: `server/migrations/002_add_void_match_result.sql` is
+applied (present in `schema_migrations`), and `match_history.result` genuinely
+accepts and returns `'void'` rows via direct `SELECT`, not just via the WS layer's
+own self-reporting.
+
+The programmer's own `double-disconnect-smoke-test.js` was also re-run fresh and
+passes, consistent with the above.
+
+**Verdict: Finding 2 is fully fixed.** No further action needed.
+
+### Finding 3 re-check: opponent deck-size display — fix holds
+
+Verified with a from-scratch Playwright repro (`qa-deck-size-recheck.js`) mirroring
+the original report's methodology: two real accounts, one (24-card starter deck)
+untouched, the other's slot 1 trimmed via a real `PUT /api/decks/1` call to a
+deliberately different, still-valid 20-card composition (server-confirmed
+`total: 20`), real two-client match.
+
+| | A's view of B's deck (opponent drawPile+hand) | B's real deck | B's view of A's deck (opponent drawPile+hand) | A's real deck |
+|---|---|---|---|---|
+| | **20** | 20 | **24** | 24 |
+
+Both directions now correctly show the real opponent deck size, not the viewer's
+own (the original report's confirmed-wrong values were 19/15 and 14/18 — a
+same-value-as-own-deck-minus-something signature that no longer appears at all).
+The programmer's own `deck-size-relay-smoke-test.js` was also re-run fresh
+(including its own check that a disconnect/reconnect without resending `deckSize`
+doesn't wipe the previously-recorded value) and passes.
+
+**Verdict: Finding 3 is fully fixed.** No further action needed.
+
+### Smoke-test suite — full fresh re-run, nothing regressed
+
+Ran all five existing smoke tests fresh against a live local server/DB (not just
+read, actually executed this session, closing the original report's own explicitly-
+flagged gap for `ws-smoke-test.js`/`pvp-smoke-test.js`/`match-history-smoke-test.js`):
+
+- `node scripts/smoke-test.js` — **ALL PASS** (21/21 assertions).
+- `node scripts/deck-smoke-test.js` — **ALL PASS**.
+- `node scripts/ws-smoke-test.js` — **ALL PASS**, including the now-carried
+  `deckSize` field showing up correctly as `null` when a client omits it.
+- `node scripts/pvp-smoke-test.js` — **ALL PASS** (Scenarios A–E: server-clock
+  timeout, manual end-turn, out-of-turn rejection, disconnect/reconnect-in-grace,
+  auto-forfeit + match_history, claim-forfeit floor).
+- `node scripts/match-history-smoke-test.js` — **ALL PASS** (empty state, real
+  win/loss recording, auto-forfeit recording, 100-row cap/ordering).
+
+Also ran the three new programmer-authored scripts fresh (not just read):
+`frozen-client-turn-timeout-test.js`, `double-disconnect-smoke-test.js`,
+`deck-size-relay-smoke-test.js` — **all pass**, consistent with the independent
+re-checks above. (As noted under Finding 1, the frozen-client script's coverage has
+a real gap — it doesn't cover the passive player acting during the reconciliation
+window — which is exactly why it doesn't catch the new regression documented above
+even though it passes.)
+
+### Finding 4 re-check: spec self-contradiction — confirmed resolved (doc-only, quick check)
+
+`docs/design/spec-online-pvp.md` §5.2 now explicitly states the "blocks" criterion
+is about the disabled state being *visually obvious before the click*, not about
+whether the control is a literal HTML `disabled` button — and explicitly names
+§5.5's "disabled style + click has no response" as *the correct implementation of
+that exact principle*, not a contradiction of it. §5.5 itself is unchanged and was
+never the problem. Read both sections in full; no remaining contradiction, no code
+change was needed or made, consistent with the commit's own framing ("needs
+game-designer, not a code fix").
+
+### Finding 5: unchanged, not re-flagged
+
+Per the task brief, this was left as-is by design (client-hardcoded disconnect
+timing, informational, not a bug) — not re-tested or re-flagged as new here.
+
+### Bottom line for the CEO
+
+**Not ready for production deployment yet.** Two of the three fixes (double-
+disconnect, deck-size display) are genuinely solid and can ship as-is — verified
+independently, not just re-reading the programmer's own tests. The turn-timeout
+Blocker's core promise (opponent's match no longer permanently stalls behind a
+frozen/distracted client, no more 6→11 hand corruption) is also genuinely
+delivered. But the fix for that Blocker introduced a new, 100%-reproducible (4/4
+runs) silent state-corruption bug — a player's spent mana can get invisibly
+refunded, or their just-gained block can get invisibly wiped — triggered by the
+exact same frozen-opponent scenario the original Blocker was about, the moment the
+passive player does the single most normal thing there is to do on their own turn:
+play a card. This needs another programmer pass (the applyRemoteEndTurn()
+double-invocation path) plus a regression test that actually has the passive player
+act during the reconciliation window (the existing frozen-client test doesn't).
+Given it's a fresh, easily-reproduced regression in exactly the highest-severity
+area of the original report, recommend treating it as a release blocker for this
+milestone, not a tracked-follow-up-while-shipping item.
+
+### Files referenced (follow-up)
+
+- Independent re-check scripts (this session's scratchpad, not part of the repo):
+  `qa-reconcile-race-test.js` (+ a `quickGuard`-targeting variant), 
+  `qa-double-disconnect-recheck.js`, `qa-deck-size-recheck.js`
+- New regression root cause: `/Users/jungjongchan/Desktop/company/js/state.js`
+  (`applyRemoteEndTurn`, `reconcileMyTurnStart`, `applyRemoteAction`'s `'endTurn'`
+  case, `localTurnStart`'s unconditional block/mana reset)
+- Fix commit re-verified: `f157db8` ("Fix QA blocker + 2 major findings from
+  online-pvp-milestone report")
+- Programmer's own new tests, re-run fresh:
+  `/Users/jungjongchan/Desktop/company/server/scripts/frozen-client-turn-timeout-test.js`,
+  `double-disconnect-smoke-test.js`, `deck-size-relay-smoke-test.js`
+- Migration verified applied + queried directly:
+  `/Users/jungjongchan/Desktop/company/server/migrations/002_add_void_match_result.sql`
+- Spec re-check: `/Users/jungjongchan/Desktop/company/docs/design/spec-online-pvp.md` §5.2/§5.5
