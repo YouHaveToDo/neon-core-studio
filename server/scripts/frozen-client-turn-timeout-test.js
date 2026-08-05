@@ -5,6 +5,21 @@
  * by a synchronous busy-loop), and recovering from that produced real
  * hand-count corruption (6 -> 11 cards).
  *
+ * Scenarios 1-2 cover the original Blocker fix (f157db8). Scenarios 3-4
+ * (added for the Follow-up verification re-check in the same QA doc,
+ * 2026-08-05) cover the regression THAT fix introduced: applyRemoteEndTurn()
+ * being reachable from both the new reconciliation path and the pre-existing
+ * peer `endTurn` action with no shared idempotency guard, so a stale
+ * `endTurn` arriving after reconciliation already handled a turn boundary
+ * silently re-ran localTurnStart() and reset the passive player's own
+ * mana/block. QA's report explicitly flags why Scenarios 1-2 alone didn't
+ * catch this: they only ever poll/observe the passive client during the
+ * freeze, never have it actually act. Scenario 3 closes that gap (same real
+ * two-process freeze methodology). Scenario 4 covers the reverse message
+ * ordering directly against the state machine -- see its own doc comment for
+ * why a real network race can't produce that ordering here, and why the fix
+ * (and this test) don't rely on that being true.
+ *
  * This deliberately reproduces QA's own methodology, not a simplified
  * happy-path stand-in:
  *   - TWO SEPARATE `chromium.launch()` browser PROCESSES, not two contexts
@@ -397,6 +412,313 @@ async function scenario2HowToPlayLeftOpen() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Scenario 3 / 4: docs/qa/online-pvp-milestone.md's Follow-up verification
+// regression (re-check of f157db8, 2026-08-05) -- the reconciliation fix
+// above (Scenarios 1/2) closed the original Blocker but introduced a NEW
+// bug: applyRemoteEndTurn() (js/state.js) was reachable from both
+// reconcileMyTurnStart() (the new server-driven path) AND the pre-existing
+// real peer `endTurn` action, completely uncoordinated, and non-idempotent
+// (it ends in localTurnStart(), which unconditionally resets
+// state.player.block/mana). QA's own report explicitly calls out why
+// Scenarios 1/2 above didn't catch this: they only ever OBSERVE the passive
+// client's turn/hand during and after the freeze, never have it actually
+// ACT during the reconciliation window -- which is exactly when the bug
+// bites. Scenario 3 closes that gap using the same genuinely-frozen-process
+// methodology as Scenarios 1/2 (not a mock/simulated freeze). Scenario 4
+// covers the reverse message ordering directly against the state machine
+// (see its own doc comment for why that ordering isn't reachable through a
+// real network race here, and why we still test it).
+// ---------------------------------------------------------------------------
+
+async function scenario3ActDuringReconciliationWindow() {
+  console.log('\n\n########## SCENARIO 3: passive client acts during the reconciliation window, then the frozen client\'s stale endTurn arrives ##########');
+  let browserA;
+  let browserB;
+  try {
+    console.log('\n== signup two accounts, launch two SEPARATE chromium processes, reach How-to-Play ==');
+    const setup = await setUpTwoClientsAtHowto('AliceRace', 'BobRace');
+    browserA = setup.browserA;
+    browserB = setup.browserB;
+    const { pageA, pageB } = setup;
+
+    console.log('== both clients dismiss How-to-Play normally ==');
+    await pageA.click('#btn-howto-close');
+    await pageB.click('#btn-howto-close');
+    await waitFor(pageA, () => AL.state.screen === 'battle');
+    await waitFor(pageB, () => AL.state.screen === 'battle');
+
+    const aliceIsActive = await pageA.evaluate(() => AL.state.turn === 'player');
+    const activePage = aliceIsActive ? pageA : pageB;
+    const passivePage = aliceIsActive ? pageB : pageA;
+    console.log(`  active (to freeze): ${aliceIsActive ? 'Alice' : 'Bob'}; passive (to poll + act): ${aliceIsActive ? 'Bob' : 'Alice'}`);
+
+    // Deterministic hand injection on the passive client, done BEFORE the
+    // freeze even starts -- this only controls WHICH cards are available to
+    // play (so the test reliably exercises both the mana-refund and the
+    // block-wipe symptoms QA's report documents in one run, rather than
+    // depending on what the real shuffled starter deck happens to draw),
+    // it does not touch anything about the freeze/reconciliation mechanism
+    // itself, which stays exactly as real as Scenarios 1/2.
+    //   - twinStrike (cost 1, attack, targets opponent) -- exercises the
+    //     mana-refund symptom (QA's Run 1).
+    //   - quickGuard (cost 0, self, +4 block) -- exercises the block-wipe
+    //     symptom (QA's Run 2). Also draws 1 card, which is fine.
+    //   - strike (cost 1) -- deliberately left UNPLAYED. resolveCard()'s own
+    //     maybeAutoEndTurn() (js/state.js, pre-existing, unrelated to this
+    //     fix) auto-ends a turn 500ms after the hand has nothing left
+    //     affordable -- leaving one still-affordable card in hand keeps that
+    //     real feature from firing and ending the turn on its own during the
+    //     test's wait below, which would otherwise be mistaken for THIS
+    //     bug's "turn silently ended" symptom.
+    await passivePage.evaluate(() => {
+      AL.state.player.hand = ['twinStrike', 'quickGuard', 'strike'];
+      AL.state.player.handKeys = ['test-c0', 'test-c1', 'test-c2'];
+    });
+
+    // Deliberately a SHORTER freeze than Scenarios 1/2's FREEZE_MS here, and
+    // a short settle wait below -- not arbitrary. This test's card plays go
+    // through AL.selectCard()/targetOpponent() directly (matching a real
+    // player's actions), NOT through js/battle.js's onManualEndTurnClick(),
+    // which is the only thing that ever sends the dedicated `end_turn`
+    // message to the server. So once the passive player's own turn begins
+    // (via reconciliation), the SERVER's OWN turn-timeout clock for HER turn
+    // is still running underneath, independent of what she plays -- and if
+    // this test's own wait ran long enough for THAT to elapse too, her own
+    // real (not stale) turn_timeout would fire and end her turn for real,
+    // which would look identical to this bug's symptom (turn flips, hand
+    // empties) but isn't it. Same class of gotcha QA's own report flagged
+    // for Scenario 1's freeze duration ("using a value too close to
+    // 2xPVP_TURN_TIMEOUT_MS introduces a second, legitimate timeout that
+    // confounds the result") -- here it applies to the WAIT after the freeze
+    // rather than the freeze length itself, since the passive player's own
+    // deadline starts counting from roughly when reconciliation happened
+    // (~TURN_TIMEOUT_MS after freeze start), not from freeze end. Keeping
+    // (freeze length + settle wait) comfortably under 2*TURN_TIMEOUT_MS
+    // avoids it.
+    const freezeMs = TURN_TIMEOUT_MS + 2000;
+    console.log(`\n== freezing the ACTIVE page's JS main thread for ${freezeMs}ms (turn_timeout is configured for ${TURN_TIMEOUT_MS}ms) ==`);
+    const freezeStartedAt = Date.now();
+    const freezePromise = activePage
+      .evaluate((ms) => {
+        const end = Date.now() + ms;
+        while (Date.now() < end) {
+          /* deliberately synchronous, blocks this page's JS thread */
+        }
+        return true;
+      }, freezeMs)
+      .catch((err) => {
+        console.error('  freeze evaluate() rejected unexpectedly:', err.message);
+        return false;
+      });
+
+    console.log('== polling the passive client until reconciliation flips its turn to \'player\' ==');
+    let flipped = false;
+    const pollDeadline = Date.now() + freezeMs - 1000; // stop polling with a margin before the freeze itself ends
+    while (Date.now() < pollDeadline) {
+      if (await passivePage.evaluate(() => AL.state.turn === 'player')) {
+        flipped = true;
+        break;
+      }
+      await sleep(150);
+    }
+    assert(flipped, 'passive client\'s turn flipped to \'player\' via reconciliation while the opponent is still frozen (precondition for this scenario)');
+
+    console.log('== IMMEDIATELY playing both injected cards on the passive client, inside the reconciliation window (before the frozen client wakes up) ==');
+    // twinStrike: targets the opponent, so select then target.
+    await passivePage.evaluate(() => {
+      const idx = AL.state.player.hand.indexOf('twinStrike');
+      AL.selectCard(idx);
+      AL.targetOpponent();
+    });
+    const afterTwinStrike = await passivePage.evaluate(() => ({ mana: AL.state.player.mana, block: AL.state.player.block }));
+    assert(afterTwinStrike.mana === 2, `mana correctly spent playing twinStrike (cost 1) out of a full 3 (got ${afterTwinStrike.mana})`);
+
+    // quickGuard: self-target, resolves immediately on selectCard().
+    await passivePage.evaluate(() => {
+      const idx = AL.state.player.hand.indexOf('quickGuard');
+      AL.selectCard(idx);
+    });
+    const afterQuickGuard = await passivePage.evaluate(() => ({ mana: AL.state.player.mana, block: AL.state.player.block }));
+    assert(afterQuickGuard.mana === 2, `mana unchanged by quickGuard (cost 0) (got ${afterQuickGuard.mana})`);
+    assert(afterQuickGuard.block === 4, `block correctly gained from quickGuard (+4) (got ${afterQuickGuard.block})`);
+    assert(
+      (await passivePage.evaluate(() => AL.state.turn)) === 'player',
+      'turn correctly still belongs to the passive player right after their own real actions (not silently ended)'
+    );
+
+    console.log('\n== waiting for the frozen tab to wake up and its stale queued endTurn to fully propagate and settle ==');
+    await freezePromise;
+    // Short settle wait -- localhost message propagation settles in well
+    // under this, and staying short keeps well clear of the passive
+    // player's own real second turn-timeout deadline (see the freezeMs doc
+    // comment above).
+    await sleep(800);
+
+    const finalState = await passivePage.evaluate(() => ({
+      mana: AL.state.player.mana,
+      block: AL.state.player.block,
+      turn: AL.state.turn,
+      handLen: AL.state.player.hand.length,
+    }));
+    assert(
+      finalState.mana === 2,
+      `mana is STILL 2 after the frozen client's stale endTurn message finally arrives -- NOT silently refunded to full ` +
+        `(QA's Run 1 regression: mana was silently restored to 3; got ${finalState.mana})`
+    );
+    assert(
+      finalState.block === 4,
+      `block is STILL 4 after the frozen client's stale endTurn message finally arrives -- NOT silently wiped to 0 ` +
+        `(QA's Run 2 regression: block was silently wiped; got ${finalState.block})`
+    );
+    assert(
+      finalState.turn === 'player',
+      `turn correctly stayed 'player' throughout -- the stale endTurn did not silently re-end the passive player's own turn (got ${finalState.turn})`
+    );
+    assert(
+      finalState.handLen === 2,
+      `passive client's hand has exactly the 1 deliberately-unplayed card (strike) plus the 1 real card quickGuard's own ` +
+        `effect drew when it was played (an expected, correct draw -- NOT a phantom re-draw from a duplicate turn-start, ` +
+        `which is what this assertion actually guards against: a bug here would show up as a SECOND unexpected draw on ` +
+        `top of these 2, i.e. a stale endTurn's localTurnStart() re-running and drawing a fresh turn's worth of cards) (got ${finalState.handLen} cards)`
+    );
+  } finally {
+    if (browserA) await browserA.close().catch(() => {});
+    if (browserB) await browserB.close().catch(() => {});
+  }
+}
+
+// Reverse ordering: the stale peer `endTurn` action arriving BEFORE the
+// server-driven reconciliation for the same turn boundary.
+//
+// Is this reachable via a real network race for the frozen-client scenario
+// above? No -- both messages travel to the passive client over the SAME
+// server<->client connection (TCP-ordered), and the server always sends its
+// turn_started broadcast the instant it detects the timeout -- strictly
+// BEFORE the frozen client can even wake up and generate the stale action
+// that eventually gets relayed through the same server. So for Scenario 3's
+// specific mechanism, "reconciliation first" is the only physically
+// possible ordering, not just the common one. Scenarios 1-3 above already
+// prove that ordering is safe.
+//
+// But applyRemoteEndTurn()'s guard (js/state.js) isn't supposed to rely on
+// that ordering holding -- it's a plain state check ("is it already my
+// turn"), not a race-timing assumption, so it must ALSO be correct if a
+// future change (e.g. a client reconnect replaying buffered messages out of
+// original order, or a different transport) ever did deliver them in the
+// opposite order. This exercises that directly against the real state
+// machine (AL.applyRemoteAction / AL.reconcileMyTurnStart), in a single
+// ordinary page -- no freeze needed, since this is a pure ordering check on
+// the two call paths, not a repro of the freeze mechanism itself.
+async function scenario4ReverseOrderingIsAlsoSafe() {
+  console.log('\n\n########## SCENARIO 4: reverse ordering (stale peer endTurn arrives BEFORE server reconciliation) is also a safe no-op ##########');
+  let browser;
+  try {
+    console.log('\n== signup one account, launch a single chromium process, reach battle as the SECOND player (so it is opponent\'s turn first) ==');
+    const account = await signup('CarolReverse');
+    browser = await chromium.launch();
+    const context = await browser.newContext();
+    await context.addCookies([
+      { name: account.cookie.name, value: account.cookie.value, domain: 'localhost', path: '/', httpOnly: true, secure: false },
+    ]);
+    const page = await context.newPage();
+    await page.goto(`http://localhost:${STATIC_PORT}/index.html`);
+    await waitFor(page, () => !document.getElementById('screen-main-menu').classList.contains('hidden'));
+
+    // No relay/second client needed for this check -- it exercises AL's own
+    // state machine directly (the "devtools/New Run" smoke-test path
+    // js/main.js already supports, per js/state.js's own doc comments),
+    // starting a match as the second player (turn = 'opponent' initially)
+    // so there's a real opponent turn boundary to reconcile.
+    await page.evaluate(() => {
+      AL.startMatch({ deck: STARTER_DECK, isFirstPlayer: false, opponentName: 'Opponent' });
+      AL.closeHowto();
+    });
+    await waitFor(page, () => AL.state.screen === 'battle' && AL.state.turn === 'opponent');
+
+    console.log('== simulating the STALE peer endTurn action arriving FIRST (before reconciliation) ==');
+    await page.evaluate(() => {
+      AL.applyRemoteAction({ type: 'endTurn' });
+    });
+    const afterStaleFirst = await page.evaluate(() => ({ turn: AL.state.turn, mana: AL.state.player.mana, block: AL.state.player.block }));
+    assert(afterStaleFirst.turn === 'player', `real endTurn action correctly starts my turn (got ${afterStaleFirst.turn})`);
+    assert(afterStaleFirst.mana === 3, `mana correctly full at the start of a genuinely new turn (got ${afterStaleFirst.mana})`);
+
+    console.log('== spending some mana and gaining block (simulating the passive player acting) ==');
+    await page.evaluate(() => {
+      AL.state.player.hand = ['twinStrike', 'quickGuard'];
+      AL.state.player.handKeys = ['test-c0', 'test-c1'];
+      AL.selectCard(0);
+      AL.targetOpponent();
+      AL.selectCard(0); // quickGuard is now at index 0 after twinStrike was spliced out
+    });
+    const afterActions = await page.evaluate(() => ({ mana: AL.state.player.mana, block: AL.state.player.block }));
+    assert(afterActions.mana === 2, `mana correctly spent (got ${afterActions.mana})`);
+    assert(afterActions.block === 4, `block correctly gained (got ${afterActions.block})`);
+
+    console.log('== NOW the server-driven reconciliation arrives SECOND, for the SAME boundary -- must be a safe no-op ==');
+    await page.evaluate(() => {
+      AL.reconcileMyTurnStart();
+    });
+    const afterReconciliation = await page.evaluate(() => ({ mana: AL.state.player.mana, block: AL.state.player.block, turn: AL.state.turn }));
+    assert(
+      afterReconciliation.mana === 2,
+      `mana is STILL 2 after reconciliation arrives second -- reconciliation did NOT re-run localTurnStart() and refund it (got ${afterReconciliation.mana})`
+    );
+    assert(
+      afterReconciliation.block === 4,
+      `block is STILL 4 after reconciliation arrives second -- reconciliation did NOT re-run localTurnStart() and wipe it (got ${afterReconciliation.block})`
+    );
+    assert(afterReconciliation.turn === 'player', `turn correctly still 'player' (got ${afterReconciliation.turn})`);
+
+    await browser.close().catch(() => {});
+    browser = null;
+
+    // Symmetric check, opposite call order this time (reconciliation first,
+    // stale action second) -- same invariant, just confirming the two
+    // orderings are equally safe against the exact same guard, not two
+    // different code paths.
+    console.log('\n== sanity re-check: SAME invariant with the opposite call order (reconciliation first, stale action second) ==');
+    browser = await chromium.launch();
+    const context2 = await browser.newContext();
+    const account2 = await signup('DaveReverseCheck');
+    await context2.addCookies([
+      { name: account2.cookie.name, value: account2.cookie.value, domain: 'localhost', path: '/', httpOnly: true, secure: false },
+    ]);
+    const page2 = await context2.newPage();
+    await page2.goto(`http://localhost:${STATIC_PORT}/index.html`);
+    await waitFor(page2, () => !document.getElementById('screen-main-menu').classList.contains('hidden'));
+    await page2.evaluate(() => {
+      AL.startMatch({ deck: STARTER_DECK, isFirstPlayer: false, opponentName: 'Opponent' });
+      AL.closeHowto();
+    });
+    await waitFor(page2, () => AL.state.screen === 'battle' && AL.state.turn === 'opponent');
+
+    await page2.evaluate(() => { AL.reconcileMyTurnStart(); });
+    await page2.evaluate(() => {
+      AL.state.player.hand = ['twinStrike', 'quickGuard'];
+      AL.state.player.handKeys = ['test-c0', 'test-c1'];
+      AL.selectCard(0);
+      AL.targetOpponent();
+      AL.selectCard(0);
+    });
+    const beforeStaleSecond = await page2.evaluate(() => ({ mana: AL.state.player.mana, block: AL.state.player.block }));
+    await page2.evaluate(() => { AL.applyRemoteAction({ type: 'endTurn' }); }); // the stale message, arriving second this time
+    const afterStaleSecond = await page2.evaluate(() => ({ mana: AL.state.player.mana, block: AL.state.player.block, turn: AL.state.turn }));
+    assert(
+      afterStaleSecond.mana === beforeStaleSecond.mana,
+      `(opposite order) mana unchanged by the stale endTurn arriving second (before=${beforeStaleSecond.mana}, after=${afterStaleSecond.mana})`
+    );
+    assert(
+      afterStaleSecond.block === beforeStaleSecond.block,
+      `(opposite order) block unchanged by the stale endTurn arriving second (before=${beforeStaleSecond.block}, after=${afterStaleSecond.block})`
+    );
+    assert(afterStaleSecond.turn === 'player', `(opposite order) turn still 'player' (got ${afterStaleSecond.turn})`);
+  } finally {
+    if (browser) await browser.close().catch(() => {});
+  }
+}
+
 async function main() {
   console.log(`\n== spawning server on port ${SERVER_PORT} with PVP_TURN_TIMEOUT_MS=${TURN_TIMEOUT_MS} ==`);
   const serverDir = path.join(__dirname, '..');
@@ -417,6 +739,8 @@ async function main() {
 
     await scenario1FrozenClient();
     await scenario2HowToPlayLeftOpen();
+    await scenario3ActDuringReconciliationWindow();
+    await scenario4ReverseOrderingIsAlsoSafe();
 
     console.log(`\n${failures === 0 ? 'ALL PASS' : `${failures} FAILURE(S)`}`);
   } finally {

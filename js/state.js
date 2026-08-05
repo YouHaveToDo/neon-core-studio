@@ -508,6 +508,22 @@ const AL = (() => {
     }
   }
 
+  // Considered for the same double-invocation guard as applyRemoteEndTurn()
+  // below (QA's follow-up report flagged this function has "the same
+  // unguarded-double-call shape"). Deliberately left as-is: unlike
+  // applyRemoteEndTurn(), this function has exactly ONE call site in the
+  // entire codebase (applyRemoteAction()'s 'turnStart' case, immediately
+  // above) -- there is no reconciliation-style second path into it, and
+  // applyRemoteEndTurn()'s new guard (below) already makes
+  // localTurnStart() unreachable a second time per boundary on the SENDING
+  // client, which is what stops it from ever emitting a duplicate
+  // 'turnStart' action in the first place. Re-checked after making that fix:
+  // no live double-invocation path exists here today. Adding a second,
+  // currently-unexercised guard mechanism (e.g. a turn-boundary counter) for
+  // a risk that can't actually occur given the code as it stands would be
+  // speculative scope creep -- if a future change adds a second call path
+  // here, it should get its own idempotency guard at that point, following
+  // this same pattern.
   function applyRemoteTurnStart(drawCount) {
     const n = typeof drawCount === 'number'
       ? drawCount
@@ -544,7 +560,52 @@ const AL = (() => {
     emit();
   }
 
+  // Idempotency guard (fixes docs/qa/online-pvp-milestone.md's Follow-up
+  // verification regression, re-check of f157db8, 2026-08-05): this function
+  // is reachable from TWO independent, uncoordinated triggers for what must
+  // be treated as the SAME turn boundary --
+  //   1. applyRemoteAction()'s 'endTurn' case, fired by a real peer `action`
+  //      message (sent by the opponent's own client, from either a manual
+  //      End Turn or its own handleTurnTimeout()).
+  //   2. reconcileMyTurnStart() (below), fired by the relay's authoritative
+  //      turn_started broadcast naming this client -- added by f157db8
+  //      specifically so a frozen/unresponsive opponent's client no longer
+  //      has to cooperate for this client's turn to actually begin.
+  // Before this guard, only reconcileMyTurnStart() checked state.turn before
+  // calling in; applyRemoteAction()'s 'endTurn' case called in completely
+  // unconditionally. So if reconciliation won the race (the common case when
+  // the opponent is frozen -- the server's turn_started broadcast is sent the
+  // instant the timeout fires, long before a frozen client's own stale
+  // `endTurn` action can even be generated, let alone relayed), this
+  // function still ran a SECOND time once that stale action eventually
+  // arrived -- re-discarding an already-empty mirrored hand (harmless) but
+  // also re-running localTurnStart(), which unconditionally resets
+  // state.player.block to 0 and state.player.mana to maxMana. That silently
+  // wiped/refunded whatever the passive player had legitimately done with
+  // their own real turn in the meantime (QA repro: 4/4 runs, mana refunded
+  // or block wiped).
+  //
+  // Putting the guard HERE (the actual state-mutating function), rather than
+  // relying solely on each individual call site remembering to check first,
+  // is what makes this safe regardless of which of the two paths above wins
+  // the race, including the reverse ordering: state.turn only ever becomes
+  // 'player' via this function's own localTurnStart() completing (or the
+  // initial coin flip, before either path can possibly have fired yet -- see
+  // startMatch()) -- so once it's already 'player', ANY further call for
+  // what must be the same boundary, from either path, in either order, is a
+  // safe no-op instead of a re-application. (In practice, for the specific
+  // frozen-opponent scenario this exists to fix, the reverse ordering --
+  // the stale peer action arriving before the server's turn_started
+  // reconciliation -- isn't reachable: both travel over the same
+  // server<->client connection, and the server always sends turn_started at
+  // the moment it detects the timeout, strictly before the frozen client can
+  // even wake up and generate its own stale action. This guard doesn't rely
+  // on that ordering holding, though -- it's correct either way, which is
+  // what server/scripts/frozen-client-turn-timeout-test.js's
+  // "reconciliation-then-stale-endTurn" and forced "endTurn-then-
+  // reconciliation" cases both exercise.)
   function applyRemoteEndTurn() {
+    if (state.turn === 'player') return; // this boundary was already applied by the other path -- no-op
     state.opponent.discardPile.push(...state.opponent.hand.map(() => HIDDEN));
     state.opponent.hand = [];
     state.opponent.handKeys = [];
@@ -569,12 +630,15 @@ const AL = (() => {
   // currently showing (a frozen/slow client isn't going to be looking at the
   // right screen anyway) and regardless of whether the normal peer action
   // for the same boundary has arrived yet. Both are idempotent no-ops if
-  // local state already agrees with the server (checked via state.turn),
-  // so whichever of "the real peer action" or "this server-driven
-  // reconciliation" happens to arrive first for a given turn boundary just
-  // wins -- the other is a harmless no-op, no double-discard/double-draw
-  // risk (see also localTurnStart()'s own hand.length===0 guard above,
-  // which independently protects against a double draw either way).
+  // local state already agrees with the server (checked via state.turn) --
+  // the authoritative version of that check now lives inside
+  // applyRemoteEndTurn() itself (see its doc comment), so it holds no matter
+  // which of "the real peer action" or "this server-driven reconciliation"
+  // happens to arrive first for a given turn boundary -- the other is a
+  // harmless no-op, no double-discard/double-draw/double-reset risk (see
+  // also localTurnStart()'s own hand.length===0 guard above, which
+  // independently protects against a double DRAW specifically, for the
+  // unrelated first-turn case).
 
   // Server says MY turn is starting now. If my own local state doesn't
   // already reflect that, the opponent's real 'endTurn' peer action hasn't
@@ -582,7 +646,9 @@ const AL = (() => {
   // (QA's Repro A). Apply exactly the same transition a real peer endTurn
   // action would (discard my mirrored view of their hand, start my own turn
   // for real) instead of waiting for a message that, in the failure mode
-  // this exists to fix, may never come.
+  // this exists to fix, may never come. This pre-check is just a cheap
+  // early-exit -- applyRemoteEndTurn() itself now enforces the same
+  // invariant unconditionally, so it stays safe even without this line.
   function reconcileMyTurnStart() {
     if (state.turn === 'player') return; // already there -- nothing to reconcile
     applyRemoteEndTurn();
