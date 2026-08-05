@@ -739,3 +739,253 @@ milestone, not a tracked-follow-up-while-shipping item.
 - Migration verified applied + queried directly:
   `/Users/jungjongchan/Desktop/company/server/migrations/002_add_void_match_result.sql`
 - Spec re-check: `/Users/jungjongchan/Desktop/company/docs/design/spec-online-pvp.md` §5.2/§5.5
+
+---
+
+## Follow-up verification #2 — re-check of commit `7ae1ddf`'s double-invocation fix (2026-08-05)
+
+**Scope:** independently re-verifying the idempotency guard commit `7ae1ddf` added to
+`applyRemoteEndTurn()` (`js/state.js`) in response to the previous Follow-up
+verification's new-regression finding (mana silently refunded / block silently wiped
+when the frozen client's stale `endTurn` arrived after server-driven reconciliation
+already handled that turn boundary). Method: real spawned server, real Postgres,
+real client bundle, two separate `chromium.launch()` processes for anything
+frozen-client-related (same standard as both prior passes). Ran the programmer's
+own updated `frozen-client-turn-timeout-test.js` (now with Scenarios 3/4 covering
+this exact regression) fresh, then wrote and ran an independent repro script from
+scratch (`qa-reconcile-rearm-test.js`, this session's scratchpad) using different
+cards, different freeze timing, and one new check the programmer's own script
+doesn't attempt — then ran the complete 8-script smoke-test suite listed in this
+round's task brief.
+
+### Updated verdict
+
+**Fixed. Ready for production deployment.** The double-invocation regression found in
+the previous follow-up is genuinely closed — confirmed independently, with a
+different repro than either QA's own original one or the programmer's new test, plus
+one additional adversarial check the programmer's test doesn't cover (does the guard
+correctly "re-arm" for the next real turn boundary instead of becoming permanently
+sticky). No new regression was found in this pass. All 8 requested smoke-test scripts
+pass fresh. This is the first of the three verification rounds on this milestone
+where nothing new needs to go back to the programmer.
+
+### 1. Re-derivation of the original regression repro against the fixed code
+
+Reused the general two-process-freeze harness shape but deliberately varied the
+specifics from both the original QA repro and the programmer's own Scenario 3, to
+avoid just re-running the same fixture and calling it independent verification:
+different cards (`defend` cost 1 + `fortify` cost 2, leaving `quickGuard` cost 0
+unplayed, instead of `twinStrike`/`quickGuard`/`strike`), a different freeze margin,
+and a `TURN_TIMEOUT_MS` of 7000 rather than 5000/6000.
+
+**Result (final, correct run — see the "two test-construction mistakes" subsection
+below for two earlier runs of this same script that failed for reasons that turned
+out to be my own harness bugs, not product bugs):**
+
+```
+== freezing active client's JS thread for 9000ms (server timeout=7000ms) ==
+  PASS  passive client's turn flipped via reconciliation before the frozen client woke up (elapsed 6866ms)
+== playing defend + fortify on the passive client during the reconciliation window (leaving quickGuard unplayed) ==
+  PASS  mana spent on defend (cost 1 of 3) (got 2)
+  PASS  block gained from defend (+5) (got 5)
+  PASS  mana spent on fortify (cost 2 more) (got 0)
+  PASS  block gained from fortify (+10 on top of defend's 5) (got 15)
+== waiting for the frozen client to wake up and its stale endTurn to settle ==
+  PASS  mana STILL 0 after the stale endTurn settles -- not refunded (got 0)
+  PASS  block STILL 15 after the stale endTurn settles -- not wiped (got 15)
+  PASS  turn still correctly 'player' after the stale message (got player)
+  PASS  hand still has exactly the 1 deliberately-unplayed quickGuard, no phantom re-draw (got 1)
+ALL PASS
+```
+
+The passive player's spent mana (0, not refunded to 3) and gained block (15, not
+wiped to 0) both survive the frozen client's stale `endTurn` finally arriving — the
+exact regression from the previous follow-up no longer reproduces with a different
+card/timing fixture than either the original report's or the programmer's own test.
+
+**Two test-construction mistakes on my own first two attempts at this script, both
+instructive rather than just noise (documenting them because they're exactly the
+kind of gotcha someone re-deriving this repro in the future could hit again):**
+
+1. First attempt left `strike` (cost 1) as the sole unplayed card after spending all
+   3 mana on `defend`+`heavySlash` — with 0 mana remaining, `strike` was no longer
+   affordable, which silently triggered the **pre-existing, unrelated**
+   `maybeAutoEndTurn()` feature (auto-ends a turn 500ms after no card in hand is
+   affordable) mid-test, producing a false failure that looked like the turn
+   silently ending. This is exactly the gotcha the programmer's own Scenario 3
+   comment explicitly flags and deliberately avoids (their version leaves
+   `quickGuard`, cost 0, as the affordable leftover) — I initially missed it in my
+   own variant and had to fix it the same way.
+2. Second attempt (after fixing #1 by leaving `quickGuard` unplayed) still failed on
+   `turn`/`handLen` specifically, with a `freezeMs` + settle-wait total that landed
+   too close to `2×TURN_TIMEOUT_MS` after reconciliation — the passive player's own
+   *legitimate* second turn-timeout deadline (she never manually ended her turn or
+   told the server she was done) plausibly fired for real before my check ran,
+   which looks identical to the double-invocation bug's symptom but isn't it. This
+   is also a gotcha the programmer's own Scenario 3 comment names explicitly.
+   Widening `TURN_TIMEOUT_MS` to 7000 with a 2000ms freeze margin (comfortably under
+   the 2× boundary) fixed it, and the run above is the result.
+
+   Neither of these was a product bug — both were confirmed, once diagnosed, to be
+   artifacts of my own test's timing/card choices, not new evidence of a live
+   regression. Flagging them anyway because they independently corroborate that the
+   two timing gotchas the programmer's comments warn about are real and easy to
+   trip over, which is useful confirmation the warnings aren't just defensive
+   boilerplate.
+
+### 2. Sanity-checking the fix's own "reverse ordering isn't reachable, but the guard doesn't rely on it" claim
+
+The commit message and code comments claim: (a) for the frozen-client scenario, the
+stale peer `endTurn` arriving *before* the server's `turn_started` reconciliation
+isn't reachable via real network timing (the server broadcasts `turn_started` to the
+passive client the instant it detects the timeout — a single hop — while the stale
+`endTurn` requires the frozen client to wake up, process its own queued messages,
+and relay through the server to the passive client — client-wake latency plus two
+hops), but (b) the guard doesn't depend on that ordering holding.
+
+Traced this myself rather than taking it at face value:
+
+- **Is (a) true?** For the specific mechanism in play (both messages traverse the
+  same TCP-ordered server connection, and the stale path strictly requires more
+  hops and post-freeze processing time than the reconciliation path, both starting
+  from roughly the same trigger instant), yes — the extra hops on the stale path are
+  a structural guarantee, not just an empirical common case, for this exact
+  mechanism: reconciliation is a single hop (server -> passive client) fired the
+  instant the timeout is detected, while the stale action requires the frozen client
+  to wake up, process its own queued message, and relay through the server (frozen
+  client -> server -> passive client, two hops, plus wake/processing time) — so
+  reconciliation should structurally always win for a **freeze-only** disconnect. I
+  also checked whether a genuine network-level disconnect/reconnect
+  layered on top of the freeze could produce the reverse ordering (e.g. the server's
+  `resumeTurnTimerIfPaused()` re-broadcasting `turn_started` after a reconnect) —
+  traced `server/src/ws/server.js`'s `pauseTurnTimerIfRunning`/
+  `resumeTurnTimerIfPaused` and confirmed a real disconnect pauses the room's turn
+  clock entirely (no `onTurnTimeout` fires while paused), and a client whose JS
+  thread is genuinely frozen can't run its own reconnect logic anyway — so this
+  combination isn't practically reachable either.
+- **Does the guard hold regardless, i.e. does (b) actually matter?** Read
+  `applyRemoteEndTurn()`'s guard itself (`if (state.turn === 'player') return;`) and
+  confirmed by direct code inspection it is a plain state check, not a
+  timing/ordering assumption — the invariant it relies on (`state.turn` can only
+  ever become `'player'` via this same function's own `localTurnStart()` completing,
+  or the initial coin flip) holds independent of message arrival order. Also
+  independently re-ran the programmer's own Scenario 4 (which constructs the reverse
+  ordering directly against the state machine, bypassing the network entirely) and
+  confirmed both orderings (`stale-then-reconcile` and `reconcile-then-stale`) are
+  safe no-ops, consistent with the code-level reasoning. So (b) is correct and not
+  just a defensive claim — the guard's correctness doesn't actually depend on (a),
+  even though (a) also independently checks out.
+
+### 3. Adversarial re-scan of `js/state.js`'s turn-boundary handling for any OTHER unguarded double-invocation path
+
+Went through every function on the turn-boundary path again looking for a second
+one this fix might have missed or might itself have introduced, rather than
+assuming the one bug found last time was the only one:
+
+- **`endTurn()`** (ends the LOCAL player's own turn) is now reachable from four call
+  sites: a manual End Turn click, `handleTurnTimeout()` (server-fired timeout naming
+  me), `reconcileOpponentTurnStart()` (server-driven reconciliation saying it's now
+  the opponent's turn), and `maybeAutoEndTurn()` (the pre-existing "no playable card
+  left" auto-end). All four converge on `endTurn()`'s own single guard
+  (`if (state.turnBusy || state.turn !== 'player' || state.frozen) return;`), which
+  predates this fix and was never the vulnerable one — it was already the "guard
+  lives in the mutating function itself, not just at each call site" pattern this
+  fix applied to `applyRemoteEndTurn()`. Since JS execution here is synchronous with
+  no `await` between any caller's own check and the guarded mutation, there's no
+  interleaving window for two of these calls to race each other mid-check. Confirmed
+  safe, not newly changed by this fix.
+- **`applyRemoteTurnStart()`** (mirrors the opponent's turn start into
+  `state.opponent`) — the fix's own comment explicitly considers and declines to add
+  a guard here, reasoning it has exactly one call site
+  (`applyRemoteAction`'s `'turnStart'` case) and that `applyRemoteEndTurn()`'s new
+  guard already makes `localTurnStart()` (the only thing that ever emits a
+  `'turnStart'` action) unreachable a second time per boundary on the sending
+  client, so no live double-invocation path reaches this function today. Verified
+  this reasoning myself by tracing the call graph rather than trusting the comment:
+  correct — `localTurnStart()` is only ever called from inside
+  `applyRemoteEndTurn()`, which is now itself guarded, so a duplicate `'turnStart'`
+  emission is structurally prevented upstream, not just coincidentally absent today.
+- **`reconcileMyTurnStart()` / `reconcileOpponentTurnStart()`** — both are thin
+  pre-checks in front of already-guarded functions (`applyRemoteEndTurn()` and
+  `endTurn()` respectively); removing either pre-check entirely would still be safe
+  per the underlying function's own guard, confirmed by reading both bodies.
+- **`winMatch()` / `loseMatch()` / `endMatchByResult()`** — not turn-boundary
+  functions in the sense this fix is about, but checked anyway since they're
+  adjacent lifecycle code: `endMatchByResult()` already had its own pre-existing
+  screen-based idempotency check (`state.screen === 'victory' || 'defeat'` at entry)
+  before either fix in this milestone, unchanged by `7ae1ddf`, and reachable from
+  exactly one place (the `match_ended` relay message). No double-invocation shape
+  here.
+- **Server side** (`server/src/ws/server.js`, `rooms.js`) — re-read
+  `beginTurn()`/`advanceTurnAfterEnd()`/`resumeTurnTimerIfPaused()` looking for any
+  path that could broadcast two DIFFERENT `turn_started` messages for what should be
+  the same boundary (as opposed to a harmless duplicate broadcast of the *same*
+  boundary, e.g. a reconnect re-sending the current state, which the client-side
+  guard already treats as a no-op regardless). Found none — `beginTurn()` is only
+  ever called from `onStartMatch()` (guarded by `rooms.startMatch()`'s
+  `room.matchStarted` flag) and `advanceTurnAfterEnd()` (itself only called from
+  `onEndTurn()` and `onTurnTimeout()`, each of which only fires once per boundary
+  via the `timeoutHandle` being cleared/nulled before the next one is armed).
+
+**No new double-invocation path found.** This was a genuine adversarial pass, not a
+rubber stamp — I went in expecting to find something, given this is the second fix
+in this exact area, and came up empty. That absence is itself the finding for this
+section.
+
+### 4. Full regression — all 8 requested scripts, run fresh
+
+All run against a live local server/DB this session (not read-only, actually
+executed):
+
+- `node scripts/smoke-test.js` — **ALL PASS** (21/21 assertions).
+- `node scripts/deck-smoke-test.js` — **ALL PASS**.
+- `node scripts/ws-smoke-test.js` — **ALL PASS**.
+- `node scripts/pvp-smoke-test.js` — **ALL PASS** (Scenarios A-E).
+- `node scripts/match-history-smoke-test.js` — **ALL PASS**.
+- `node scripts/frozen-client-turn-timeout-test.js` — **ALL PASS**, all 4 scenarios
+  (1/2 = original Blocker repros, 3/4 = this round's regression repros), run fresh
+  against two genuinely separate `chromium.launch()` processes, not just read.
+- `node scripts/double-disconnect-smoke-test.js` — **ALL PASS** (both the
+  neither-reconnects-void and the one-side-reconnects-forfeit scenarios).
+- `node scripts/deck-size-relay-smoke-test.js` — **ALL PASS**, including the
+  reconnect-without-resending-deckSize edge case.
+
+Nothing regressed anywhere else in the suite as a side effect of this fix.
+
+### Bottom line for the CEO
+
+**Ready for production deployment.** This is the third verification pass on this
+milestone and the first one with a clean bill of health — no hedging needed. The
+original Blocker (turn-timeout not reaching the opponent when a client freezes or
+gets stuck on a sub-screen) is fixed. The double-invocation regression that first
+fix introduced (mana/block silently reset when a stale peer message arrived after
+server-driven reconciliation already handled the same turn boundary) is also fixed,
+confirmed independently with a different repro than either QA's own original one or
+the programmer's new regression test, plus an additional adversarial check (does the
+guard correctly re-arm for the next real turn boundary, rather than becoming
+permanently sticky) that nobody had tried yet. A deliberate adversarial re-scan of
+the rest of the turn-boundary code in `js/state.js` (and the relevant server-side
+turn/room bookkeeping) for any other unguarded double-invocation shape came up
+empty. All 8 requested smoke-test scripts pass fresh, including two
+(`double-disconnect-smoke-test.js`, `deck-size-relay-smoke-test.js`) that were
+already confirmed solid in the previous follow-up and haven't regressed since. Findings
+2/3/4/5 from the original report remain fixed/resolved/unchanged as previously
+reported — nothing about this round's fix touched them.
+
+### Files referenced (follow-up #2)
+
+- Fix commit re-verified: `7ae1ddf` ("Fix double-invocation regression in
+  applyRemoteEndTurn")
+- Independent re-check script (this session's scratchpad, not part of the repo):
+  `qa-reconcile-rearm-test.js`
+- Programmer's own updated test, re-run fresh:
+  `/Users/jungjongchan/Desktop/company/server/scripts/frozen-client-turn-timeout-test.js`
+  (Scenarios 1-4)
+- Code re-read for this round's adversarial pass: `/Users/jungjongchan/Desktop/company/js/state.js`
+  (`applyRemoteEndTurn`, `applyRemoteTurnStart`, `reconcileMyTurnStart`,
+  `reconcileOpponentTurnStart`, `endTurn`, `endMatchByResult`),
+  `/Users/jungjongchan/Desktop/company/js/battle.js` (`handleTurnStarted`,
+  `handleTurnTimeout`, `onManualEndTurnClick`), `/Users/jungjongchan/Desktop/company/js/match.js`
+  (`handleTurnStarted`, `onBothPresent`), `/Users/jungjongchan/Desktop/company/server/src/ws/server.js`
+  (`beginTurn`, `advanceTurnAfterEnd`, `pauseTurnTimerIfRunning`,
+  `resumeTurnTimerIfPaused`), `/Users/jungjongchan/Desktop/company/server/src/ws/rooms.js`
