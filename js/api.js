@@ -72,4 +72,14 @@ const API = {
     // Most recent first, capped at 100 server-side (spec §6.5).
     list: () => apiRequest('/api/match-history'),
   },
+  rooms: {
+    // -> { rooms: [ {id, hostDisplayName, createdAt: <ms epoch>}, ... ] }
+    // Open (waiting-for-second-player) rooms, newest first -- spec §6.2.1-
+    // §6.2.3. `id` is the relay's internal room identifier (never shown to
+    // the player) -- js/match.js passes it straight back as room_join's
+    // `code` when a row is clicked. Polled every 3s + manual refresh by
+    // js/match.js, per spec §6.2.3's explicit "no realtime push" decision --
+    // see server/src/routes/rooms.js for why this is REST, not a WS message.
+    list: () => apiRequest('/api/rooms'),
+  },
 };

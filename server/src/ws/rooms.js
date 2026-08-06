@@ -12,8 +12,15 @@
 
 const crypto = require('crypto');
 
-// Excludes 0/O/1/I to avoid visual ambiguity when players read a code aloud
-// or copy it by hand (spec §6.2 example: "A3F9K2").
+// spec-online-pvp.md §6.2.4 (2026-08 revision): this is now purely an
+// internal relay identifier -- no player ever reads, types, or copies it by
+// hand anymore (the room-list screen is what replaces the old "share this
+// code" flow, see routes/rooms.js's listOpenRooms()). The original
+// ambiguity-avoiding charset (excludes 0/O/1/I) is harmless to keep even
+// though the reason it existed no longer applies -- changing the ID format
+// isn't needed just because its exposure changed, and keeping it avoids
+// touching every place that still assumes a 6-char code (protocol.js's
+// room_create/room_join shape, the existing smoke tests).
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const CODE_LENGTH = 6;
 
@@ -53,6 +60,35 @@ function createRoom(creator) {
 
 function getRoom(code) {
   return rooms.get(code) || null;
+}
+
+/**
+ * Open (waiting-for-second-player) rooms, newest-first -- backs the
+ * room-list screen (spec §6.2.1-§6.2.3). "Open" means exactly: exactly one
+ * player in it (the host, still connected -- see below), and the match
+ * hasn't started. A full (2-player) room, whether mid-match or one side
+ * currently disconnected/reconnecting, is deliberately excluded -- spec
+ * §6.2 only ever describes the list as a way to find a HOST WAITING FOR AN
+ * OPPONENT, never a way to spectate or barge into a room that already has
+ * two players in some state. Rejoining a full room you're already part of
+ * still goes through room_join's reconnect branch above, unrelated to this
+ * list.
+ *
+ * A solo room's host is always `connected` here: markDisconnected() deletes
+ * a solo room outright the instant its only player's socket closes (see
+ * that function's own doc comment), so there's no "host disconnected but
+ * the room is still sitting in the list" state to filter out separately.
+ */
+function listOpenRooms() {
+  const list = [];
+  for (const room of rooms.values()) {
+    if (room.ended || room.matchStarted) continue;
+    if (room.players.length !== 1) continue;
+    const host = room.players[0];
+    list.push({ id: room.code, hostDisplayName: host.displayName, createdAt: room.createdAt });
+  }
+  list.sort((a, b) => b.createdAt - a.createdAt);
+  return list;
 }
 
 function findPlayer(room, accountId) {
@@ -172,6 +208,7 @@ function endRoom(code) {
 module.exports = {
   createRoom,
   getRoom,
+  listOpenRooms,
   joinRoom,
   findPlayer,
   opponentOf,

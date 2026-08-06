@@ -1,16 +1,24 @@
-/* ARCANE LEDGER — deck-select -> lobby -> match-start flow
- * (plan.md 4.4/4.5/4.6, spec-online-pvp.md §6.1-§6.3).
+/* ARCANE LEDGER — deck-select -> lobby (open room list) -> match-start flow
+ * (spec-online-pvp.md §6.1-§6.3, §6.2 2026-08 revision: room-code create/join
+ * replaced with open room-list matchmaking).
  *
  * Self-contained module, same shape as js/deck.js/js/auth.js (own DOM cache
  * + state + event wiring, reached only via Screens.show()). Talks to the
- * relay through js/ws.js (Net) and, once a match is confirmed to start,
- * hands off to js/state.js's AL.startMatch() -- this file owns everything
- * BEFORE the battle screen exists (deck choice, room code, coin flip); it
- * does not touch AL.state directly beyond that one handoff call. Everything
- * that happens DURING the match (in-battle action relay, the 24s timer,
- * disconnect/forfeit, match-end) is js/battle.js's job (plan.md 4.7/4.8) --
- * handleTurnStarted() below calls Battle.start() as its very last step, the
- * exact moment ownership of the live match passes from this file to that one.
+ * relay through js/ws.js (Net) for room create/join/match-start, and to the
+ * REST room-list endpoint through js/api.js (API.rooms.list()) for browsing
+ * open rooms -- see server/src/routes/rooms.js for why that's REST, not a
+ * WS message (the room-list screen needs to poll BEFORE this client has
+ * created or joined any room, i.e. before there's a room/WS session context
+ * to hang a message off of; REST needs no such context, just the existing
+ * session cookie every other authenticated GET already uses).
+ *
+ * This file owns everything BEFORE the battle screen exists (deck choice,
+ * room list/create/join, coin flip); it does not touch AL.state directly
+ * beyond the one handoff call to AL.startMatch(). Everything that happens
+ * DURING the match (in-battle action relay, the 24s timer, disconnect/
+ * forfeit, match-end) is js/battle.js's job -- handleTurnStarted() below
+ * calls Battle.start() as its very last step, the exact moment ownership of
+ * the live match passes from this file to that one.
  *
  * "다시 플레이" (spec §6.4's match-end screen) re-enters this same module via
  * playAgain(), reusing the account this file already holds from the match
@@ -35,13 +43,14 @@
  * flip "picked" them. Design used here to work around that (rather than
  * reaching for the opaque `action` relay to smuggle accountIds across, which
  * would work but adds a hidden handshake before the real match-flow
- * messages even start): a deterministic function of the room code (known
- * identically, verbatim, by both clients -- the host generated/received it
- * from ROOM_CREATED, the guest typed the same string in to join) decides
+ * messages even start): a deterministic function of the room's internal id
+ * (known identically, verbatim, by both clients -- the host generated/
+ * received it from ROOM_CREATED, the guest received the exact same string
+ * from the room-list response and echoed it back in room_join) decides
  * whether the HOST or the GUEST goes first. Each client only ever sends
  * start_match naming itself, and only when that deterministic function says
  * IT is the winner -- so across the two clients, start_match is sent from
- * exactly one side, no accountId exchange required, no race. The room code
+ * exactly one side, no accountId exchange required, no race. The room id
  * itself is generated server-side via crypto.randomInt (server/src/ws/
  * rooms.js) and is not chosen or predictable by either client ahead of
  * time, so the derived host-vs-guest outcome is effectively a random 50/50
@@ -61,12 +70,17 @@ const Match = (() => {
 
   // ---- lobby / relay state (§6.2-§6.3) --------------------------------------
   let isHost = false;
-  let roomCode = null;
+  let roomCode = null; // relay's internal room id -- never shown to the player (spec §6.2.4)
   let opponentDisplayName = null;
   let opponentDeckSize = null; // real opponent deck size relayed by the server (QA finding #3) -- null until OPPONENT_JOINED/ROOM_JOINED reports it
   let matchStarting = false; // guards double-handling of turn_started
   let netHandlersRegistered = false;
-  let copyResetTimer = null;
+
+  // ---- room list (spec §6.2.1-§6.2.6) ----------------------------------------
+  let pollTimer = null;
+  let joining = false; // true while a room_join request for a clicked row is in flight
+  let pendingAction = null; // 'create' | 'join' | null -- which outgoing relay request an 'error' reply should be attributed to
+  let toastTimer = null;
 
   function cache() {
     el.deckSelectScreen = document.getElementById('screen-deck-select');
@@ -75,26 +89,30 @@ const Match = (() => {
     el.btnDeckSelectBack = document.getElementById('btn-deck-select-back');
 
     el.lobbyScreen = document.getElementById('screen-lobby');
+    // Shared topbar slot (ui.js repurposes it as a turn indicator mid-battle).
+    // Nothing in the lobby writes a room identifier into it anymore (spec
+    // §6.2.4: no human-facing code exists to show) -- only defensively
+    // cleared here in case a previous session ever left stale text in it.
     el.roomLabelTop = document.getElementById('room-label');
 
-    el.panelSelect = document.getElementById('lobby-panel-select');
-    el.btnLobbyCreate = document.getElementById('btn-lobby-create');
-    el.btnLobbyShowJoin = document.getElementById('btn-lobby-show-join');
+    el.roomListBody = document.getElementById('room-list-body');
     el.btnLobbyBackToDeck = document.getElementById('btn-lobby-back-to-deck');
+    el.btnLobbyRefresh = document.getElementById('btn-lobby-refresh');
+    el.btnLobbyCreate = document.getElementById('btn-lobby-create');
+    el.lobbyToast = document.getElementById('lobby-toast');
+    el.lobbyToastText = document.getElementById('lobby-toast-text');
+    el.roomListLoading = document.getElementById('room-list-loading');
+    el.roomList = document.getElementById('room-list');
+    el.roomListEmpty = document.getElementById('room-list-empty');
+    el.btnLobbyCreateEmpty = document.getElementById('btn-lobby-create-empty');
+    el.roomListError = document.getElementById('room-list-error');
+    el.btnLobbyRetry = document.getElementById('btn-lobby-retry');
 
-    el.panelCreate = document.getElementById('lobby-panel-create');
-    el.lobbyCode = document.getElementById('lobby-code');
-    el.btnLobbyCopy = document.getElementById('btn-lobby-copy');
-    el.lobbyCreateStatus = document.getElementById('lobby-create-status');
-    el.btnLobbyCreateBack = document.getElementById('btn-lobby-create-back');
-
-    el.panelJoin = document.getElementById('lobby-panel-join');
-    el.lobbyJoinForm = document.getElementById('lobby-join-form');
-    el.lobbyJoinInput = document.getElementById('lobby-join-input');
-    el.btnLobbyJoinSubmit = document.getElementById('btn-lobby-join-submit');
-    el.lobbyJoinError = document.getElementById('lobby-join-error');
-    el.lobbyJoinStatus = document.getElementById('lobby-join-status');
-    el.btnLobbyJoinBack = document.getElementById('btn-lobby-join-back');
+    el.lobbyPanelWaiting = document.getElementById('lobby-panel-waiting');
+    el.lobbyWaitingTitle = document.getElementById('lobby-waiting-title');
+    el.lobbyWaitingSubtitle = document.getElementById('lobby-waiting-subtitle');
+    el.lobbyWaitingStatus = document.getElementById('lobby-waiting-status');
+    el.btnLobbyWaitingBack = document.getElementById('btn-lobby-waiting-back');
   }
 
   function escapeHtml(str) {
@@ -182,7 +200,7 @@ const Match = (() => {
 
   function chooseDeck(slot, deck) {
     selectedDeck = deck;
-    showLobbySelect();
+    showRoomList();
   }
 
   function expandDeck(cardsMap) {
@@ -195,33 +213,38 @@ const Match = (() => {
   }
 
   // ===========================================================================
-  // Lobby (spec §6.2)
+  // Lobby: open room list (spec §6.2, 2026-08 revision)
   // ===========================================================================
 
-  function showLobbySelect() {
+  function showRoomList() {
     resetLobbyLocalState();
     Screens.show('screen-lobby');
-    setLobbyPanel('select');
+    setLobbyPanel('list');
+    el.roomListLoading.classList.remove('hidden');
+    el.roomListEmpty.classList.add('hidden');
+    el.roomListError.classList.add('hidden');
+    el.roomList.innerHTML = '';
+    fetchRooms();
+    startPolling();
   }
 
   function resetLobbyLocalState() {
+    stopPolling();
     isHost = false;
     roomCode = null;
     opponentDisplayName = null;
     opponentDeckSize = null;
     matchStarting = false;
+    joining = false;
+    pendingAction = null;
     el.roomLabelTop.textContent = '';
-    el.lobbyJoinInput.value = '';
-    el.btnLobbyJoinSubmit.disabled = true;
-    setJoinError(null);
-    setJoinConnecting(false);
-    setCreateStatusWaiting();
+    hideToast();
+    setRoomListInteractive(true);
   }
 
   function setLobbyPanel(name) {
-    el.panelSelect.classList.toggle('hidden', name !== 'select');
-    el.panelCreate.classList.toggle('hidden', name !== 'create');
-    el.panelJoin.classList.toggle('hidden', name !== 'join');
+    el.roomListBody.classList.toggle('hidden', name !== 'list');
+    el.lobbyPanelWaiting.classList.toggle('hidden', name !== 'waiting');
   }
 
   async function ensureConnected() {
@@ -232,118 +255,175 @@ const Match = (() => {
     }
   }
 
-  // ---- 방 만들기 -------------------------------------------------------------
+  // ---- polling (spec §6.2.3: 3s interval + manual refresh, no push) ---------
+  function startPolling() {
+    stopPolling();
+    pollTimer = setInterval(fetchRooms, 3000);
+  }
+
+  function stopPolling() {
+    if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+  }
+
+  // .refreshing spins the refresh icon (css/pvp-components.css) for both the
+  // manual-click and the 3s-auto-poll case, and also for the §6.2.6 auto-
+  // refresh right after a rejected join -- same request either way, just
+  // different triggers, so one visual cue covers all of them.
+  async function fetchRooms() {
+    el.btnLobbyRefresh.classList.add('refreshing');
+    try {
+      const data = await API.rooms.list();
+      renderRoomList(data.rooms || []);
+    } catch (err) {
+      showRoomListErrorState();
+    } finally {
+      el.btnLobbyRefresh.classList.remove('refreshing');
+    }
+  }
+
+  function formatRelativeTime(createdAtMs) {
+    const elapsedSec = Math.max(0, Math.floor((Date.now() - createdAtMs) / 1000));
+    if (elapsedSec < 60) return `${elapsedSec}초 전`;
+    const elapsedMin = Math.floor(elapsedSec / 60);
+    return `${elapsedMin}분 전`;
+  }
+
+  // spec §6.2.2: only host display name + relative wait time per row, newest
+  // first (server already sorts descending -- see rooms.js's listOpenRooms()).
+  // spec §6.2.5: empty state is visually distinct from the network-error
+  // state (§6.2.5's last paragraph) -- both go through this same render path
+  // by first clearing whichever of the two was showing before.
+  // Markup per row (.room-host/.room-wait/.room-row-arrow + icon-chevron-
+  // right) lifted from assets/mockups/screen-lobby.html -- the chevron is
+  // hidden until hover/focus (pure CSS) as the only affordance hinting a row
+  // is clickable at all.
+  function renderRoomList(rooms) {
+    el.roomListLoading.classList.add('hidden');
+    el.roomListError.classList.add('hidden');
+    el.roomList.innerHTML = '';
+
+    if (!rooms.length) {
+      el.roomListEmpty.classList.remove('hidden');
+      return;
+    }
+    el.roomListEmpty.classList.add('hidden');
+
+    rooms.forEach((room) => {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'room-row';
+      row.innerHTML =
+        `<span class="room-host">${escapeHtml(room.hostDisplayName)}</span>` +
+        `<span class="room-wait">${formatRelativeTime(room.createdAt)}</span>` +
+        `<svg class="room-row-arrow"><use href="#icon-chevron-right"></use></svg>`;
+      row.addEventListener('click', () => onRoomRowClick(room.id));
+      el.roomList.appendChild(row);
+    });
+  }
+
+  function showRoomListErrorState() {
+    el.roomListLoading.classList.add('hidden');
+    el.roomList.innerHTML = '';
+    el.roomListEmpty.classList.add('hidden');
+    el.roomListError.classList.remove('hidden');
+  }
+
+  function setRoomListInteractive(enabled) {
+    el.roomList.classList.toggle('room-list-busy', !enabled);
+    el.btnLobbyCreate.disabled = !enabled;
+  }
+
+  function showToast(message) {
+    el.lobbyToastText.textContent = message;
+    el.lobbyToast.classList.remove('hidden');
+    clearTimeout(toastTimer);
+    // spec §6.2.6 step 2: "약 2~3초 후 자동으로 사라짐".
+    toastTimer = setTimeout(hideToast, 2500);
+  }
+
+  function hideToast() {
+    clearTimeout(toastTimer);
+    toastTimer = null;
+    el.lobbyToast.classList.add('hidden');
+    el.lobbyToastText.textContent = '';
+  }
+
+  // ---- 방 만들기 (spec §6.2.1 step 2) -----------------------------------------
   async function onCreateRoomClick() {
-    setLobbyPanel('create');
-    setCreateStatusWaiting();
-    el.lobbyCode.textContent = '......';
+    stopPolling();
+    pendingAction = 'create';
+    el.lobbyWaitingTitle.textContent = '방 만들기';
+    el.lobbyWaitingSubtitle.textContent = '상대를 기다리는 중...';
+    el.btnLobbyWaitingBack.classList.remove('hidden'); // host can cancel the wait
+    setLobbyPanel('waiting');
+    setWaitingStatusWaiting();
     try {
       await ensureConnected();
       // deckSize (QA finding #3): the opponent's client relays this straight
       // back to us as opponent.deckSize once they join -- see
-      // registerNetHandlers()'s room_joined/opponent_joined handling below.
+      // registerNetHandlers()'s opponent_joined handling below.
       Net.send('room_create', { deckSize: selectedDeck.total });
     } catch (err) {
-      setCreateStatusError(err.message);
+      pendingAction = null;
+      setWaitingStatusError(err.message);
     }
   }
 
-  function setCreateStatusWaiting() {
-    el.lobbyCreateStatus.innerHTML = '<span class="spinner"></span>상대를 기다리는 중...';
+  function setWaitingStatusWaiting() {
+    el.lobbyWaitingStatus.innerHTML = '<span class="spinner"></span>상대를 기다리는 중...';
   }
 
-  function setCreateStatusError(message) {
-    el.lobbyCreateStatus.innerHTML = `<span class="lobby-inline-error">${escapeHtml(message)}</span>`;
+  function setWaitingStatusError(message) {
+    el.lobbyWaitingStatus.innerHTML = `<span style="color:var(--crimson); font-size:11.5px;">${escapeHtml(message)}</span>`;
   }
 
-  function setOpponentFound(containerEl, name) {
-    containerEl.classList.remove('hidden');
-    containerEl.innerHTML =
-      `<span class="opponent-found"><svg class="icon"><use href="#icon-crown"></use></svg>${escapeHtml(name)} 님이 입장했습니다</span>` +
+  // Shared "matched!" flash (assets/mockups/screen-lobby.html's own note:
+  // the SAME .opponent-found component is reused for both the host, who
+  // sees it once someone joins their room, and the joiner, who sees it the
+  // instant their own room_join succeeds -- only the wording differs).
+  function setWaitingOpponentFound(name, joinerPerspective) {
+    const text = joinerPerspective ? `${escapeHtml(name)} 님과 매칭되었습니다` : `${escapeHtml(name)} 님이 입장했습니다`;
+    el.lobbyWaitingStatus.innerHTML =
+      `<span class="opponent-found"><svg class="icon"><use href="#icon-crown"></use></svg>${text}</span>` +
       `<div class="lobby-waiting" style="margin-top:8px;"><span class="spinner"></span>매치를 준비하는 중...</div>`;
   }
 
-  function onCopyClick() {
-    if (!roomCode) return;
-    const done = () => {
-      el.btnLobbyCopy.classList.add('copied');
-      clearTimeout(copyResetTimer);
-      copyResetTimer = setTimeout(() => el.btnLobbyCopy.classList.remove('copied'), 1500);
-    };
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(roomCode).then(done).catch(() => fallbackCopy(roomCode, done));
-    } else {
-      fallbackCopy(roomCode, done);
-    }
-  }
-
-  function fallbackCopy(text, done) {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.position = 'fixed';
-    ta.style.opacity = '0';
-    document.body.appendChild(ta);
-    ta.select();
-    try { document.execCommand('copy'); done(); } catch (err) { /* ignore -- no copy UX feedback if this also fails */ }
-    document.body.removeChild(ta);
-  }
-
-  // ---- 코드로 참가하기 ---------------------------------------------------------
-  function onShowJoinClick() {
-    setLobbyPanel('join');
-    el.lobbyJoinInput.value = '';
-    el.btnLobbyJoinSubmit.disabled = true;
-    setJoinError(null);
-    setJoinConnecting(false);
-    el.lobbyJoinInput.focus();
-  }
-
-  function onJoinInput() {
-    el.lobbyJoinInput.value = el.lobbyJoinInput.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
-    el.btnLobbyJoinSubmit.disabled = el.lobbyJoinInput.value.length !== 6;
-  }
-
-  function setJoinError(message) {
-    if (!message) {
-      el.lobbyJoinError.classList.add('hidden');
-      el.lobbyJoinError.textContent = '';
-      return;
-    }
-    el.lobbyJoinError.classList.remove('hidden');
-    el.lobbyJoinError.textContent = message;
-  }
-
-  function setJoinConnecting(connecting) {
-    el.lobbyJoinStatus.classList.toggle('hidden', !connecting);
-    el.lobbyJoinInput.disabled = connecting;
-    el.btnLobbyJoinSubmit.disabled = connecting || el.lobbyJoinInput.value.length !== 6;
-  }
-
-  async function onJoinSubmit() {
-    const code = el.lobbyJoinInput.value;
-    if (code.length !== 6) return;
-    setJoinError(null);
-    setJoinConnecting(true);
+  // ---- 방 목록에서 행 클릭 = 즉시 참가 시도 (spec §6.2.1 step 3) ------------------
+  async function onRoomRowClick(roomId) {
+    if (joining) return;
+    joining = true;
+    pendingAction = 'join';
+    setRoomListInteractive(false);
+    hideToast();
     try {
       await ensureConnected();
-      Net.send('room_join', { code, deckSize: selectedDeck.total });
+      Net.send('room_join', { code: roomId, deckSize: selectedDeck.total });
     } catch (err) {
-      setJoinConnecting(false);
-      setJoinError(err.message);
+      joining = false;
+      pendingAction = null;
+      setRoomListInteractive(true);
+      showToast(err.message || '방에 참가하지 못했습니다');
     }
   }
 
   // ---- back navigation --------------------------------------------------------
-  function onBackFromSubPanel() {
+  function onBackFromWaiting() {
     if (roomCode && Net.isConnected()) Net.send('leave_room');
     isHost = false;
     roomCode = null;
     opponentDisplayName = null;
+    pendingAction = null;
     el.roomLabelTop.textContent = '';
-    setLobbyPanel('select');
+    setLobbyPanel('list');
+    fetchRooms();
+    startPolling();
   }
 
-  function onBackFromSelect() {
+  function onBackFromList() {
+    stopPolling();
     Net.close();
     resetLobbyLocalState();
     Screens.show('screen-deck-select');
@@ -355,37 +435,44 @@ const Match = (() => {
 
   function registerNetHandlers() {
     Net.on('room_created', (msg) => {
+      pendingAction = null;
       isHost = true;
       roomCode = msg.code;
-      el.lobbyCode.textContent = roomCode;
-      el.roomLabelTop.textContent = `방 ${roomCode}`;
-      setCreateStatusWaiting();
-    });
-
-    Net.on('room_joined', (msg) => {
-      isHost = false;
-      roomCode = msg.code;
-      el.roomLabelTop.textContent = `방 ${roomCode}`;
-      // Lock the form (success either way -- we're in the room now) without
-      // going through setJoinConnecting(false), which HIDES the status
-      // container (correct for the error-retry path, wrong here: we're
-      // about to write the opponent-found line into that same container).
-      el.lobbyJoinInput.disabled = true;
-      el.btnLobbyJoinSubmit.disabled = true;
-      if (msg.opponent) {
-        onBothPresent(msg.opponent.displayName, msg.opponent.deckSize, el.lobbyJoinStatus);
-      } else {
-        // Shouldn't happen in the create-then-join ordering the relay
-        // enforces (a room can't exist without its creator still connected,
-        // per server/src/ws/rooms.js), but stay in a sane "connected, no
-        // opponent yet" state rather than assuming a match can start.
-        el.lobbyJoinStatus.classList.remove('hidden');
-        el.lobbyJoinStatus.innerHTML = '<span class="spinner"></span>상대를 기다리는 중...';
-      }
+      setWaitingStatusWaiting();
     });
 
     Net.on('opponent_joined', (msg) => {
-      onBothPresent(msg.opponent.displayName, msg.opponent.deckSize, el.lobbyCreateStatus);
+      setWaitingOpponentFound(msg.opponent.displayName, false);
+      onBothPresent(msg.opponent.displayName, msg.opponent.deckSize);
+    });
+
+    // Fires when THIS client's own room_join succeeds -- the relay
+    // guarantees a room only ever appears in the list (and is therefore only
+    // ever clickable) while its host is still connected, so `msg.opponent`
+    // here should always be present; the null branch is defensive only.
+    // spec §6.2.1 step 3: "성공하면 화면에 호스트의 표시 이름이 나타나고
+    // 자동으로 매치 시작 시퀀스로 전환된다" -- flashes the same shared
+    // .opponent-found "matched!" panel the host uses (assets/mockups/
+    // screen-lobby.html's own note on reusing that pattern for the joiner),
+    // then Battle.start() takes over moments later via turn_started.
+    Net.on('room_joined', (msg) => {
+      joining = false;
+      pendingAction = null;
+      setRoomListInteractive(true);
+      isHost = false;
+      roomCode = msg.code;
+      stopPolling();
+      if (msg.opponent) {
+        el.lobbyWaitingTitle.textContent = '매치 참가';
+        el.lobbyWaitingSubtitle.textContent = '';
+        el.btnLobbyWaitingBack.classList.add('hidden'); // already resolved -- nothing left to cancel
+        setLobbyPanel('waiting');
+        setWaitingOpponentFound(msg.opponent.displayName, true);
+        onBothPresent(msg.opponent.displayName, msg.opponent.deckSize);
+      } else {
+        startPolling();
+        showToast('방을 찾을 수 없습니다. 다시 시도해주세요.');
+      }
     });
 
     Net.on('turn_started', (msg) => {
@@ -399,34 +486,50 @@ const Match = (() => {
     Net.onClose(() => {
       // Only worth surfacing if we were still mid-lobby (not yet handed off
       // to AL.startMatch) -- once a match has started this session doesn't
-      // do anything further with the socket anyway (Phase 4.7 scope).
+      // do anything further with the socket anyway.
       if (matchStarting) return;
-      if (!el.lobbyScreen.classList.contains('hidden')) {
-        setCreateStatusError('서버와의 연결이 끊어졌습니다.');
-        setJoinConnecting(false);
-        setJoinError('서버와의 연결이 끊어졌습니다.');
+      if (el.lobbyScreen.classList.contains('hidden')) return;
+      if (!el.lobbyPanelWaiting.classList.contains('hidden')) {
+        setWaitingStatusError('서버와의 연결이 끊어졌습니다.');
+        return;
+      }
+      if (joining) {
+        joining = false;
+        pendingAction = null;
+        setRoomListInteractive(true);
+        showToast('서버와의 연결이 끊어졌습니다.');
       }
     });
   }
 
+  // spec §6.2.6: a join rejected by the server (room already full, or
+  // cancelled/gone) is the fill-race case -- stay on the list screen, show
+  // the exact inline toast wording the spec specifies, and auto-refresh the
+  // list immediately so the stale row is gone before the player can click it
+  // again. Room-create failures get their own (rarer) error surface in the
+  // waiting panel instead, since that's a different pending action.
   function handleRelayError(msg) {
-    if (!el.panelJoin.classList.contains('hidden')) {
-      setJoinConnecting(false);
-      setJoinError(msg.message);
+    if (pendingAction === 'join') {
+      pendingAction = null;
+      joining = false;
+      setRoomListInteractive(true);
+      showToast('이미 다른 플레이어가 참가한 방입니다');
+      fetchRooms();
       return;
     }
-    if (!el.panelCreate.classList.contains('hidden')) {
-      setCreateStatusError(msg.message);
+    if (pendingAction === 'create') {
+      pendingAction = null;
+      setWaitingStatusError(msg.message);
       return;
     }
-    // Select panel or elsewhere -- no dedicated slot for this, but don't
-    // fail silently.
+    // Shouldn't normally happen at this stage of the flow, but don't fail
+    // silently on an unexpected relay error.
     window.alert(msg.message);
   }
 
-  // Deterministic room-code hash -> 'host' or 'guest' goes first. See the
-  // file header for why this exists instead of naming the opponent's
-  // accountId directly.
+  // Deterministic room-id hash -> 'host' or 'guest' goes first. See the file
+  // header for why this exists instead of naming the opponent's accountId
+  // directly.
   function hashRoomCode(code) {
     let h = 0;
     for (let i = 0; i < code.length; i++) {
@@ -439,10 +542,9 @@ const Match = (() => {
     return (Math.abs(hashRoomCode(roomCode)) % 2) === 0;
   }
 
-  function onBothPresent(displayName, deckSize, statusEl) {
+  function onBothPresent(displayName, deckSize) {
     opponentDisplayName = displayName;
     opponentDeckSize = typeof deckSize === 'number' ? deckSize : null;
-    setOpponentFound(statusEl, displayName);
 
     const iAmFirst = isHost ? hostGoesFirst() : !hostGoesFirst();
     if (iAmFirst) {
@@ -456,6 +558,7 @@ const Match = (() => {
     if (matchStarting) return; // idempotent guard -- server already dedupes start_match, this just prevents a second AL.startMatch() call client-side
     if (!selectedDeck) return; // defensive -- shouldn't fire before a deck was chosen
     matchStarting = true;
+    stopPolling();
 
     const isFirstPlayer = msg.activeAccountId === account.id;
     const deckIds = expandDeck(selectedDeck.cards);
@@ -472,7 +575,7 @@ const Match = (() => {
       opponentName: opponentDisplayName,
       opponentDeckSize,
       // Cosmetic-only opponent bust variant (art-direction.md §8.5 rev.4) --
-      // seeded from the room code (known identically by both clients, same
+      // seeded from the room id (known identically by both clients, same
       // source hashRoomCode() already uses for the first-player coin flip)
       // purely so a match "feels" consistent, not because it needs to be
       // deterministic for any gameplay reason.
@@ -502,18 +605,12 @@ const Match = (() => {
     el.btnDeckSelectBack.addEventListener('click', () => App.returnToMainMenu());
 
     el.btnLobbyCreate.addEventListener('click', onCreateRoomClick);
-    el.btnLobbyShowJoin.addEventListener('click', onShowJoinClick);
-    el.btnLobbyBackToDeck.addEventListener('click', onBackFromSelect);
+    el.btnLobbyCreateEmpty.addEventListener('click', onCreateRoomClick);
+    el.btnLobbyBackToDeck.addEventListener('click', onBackFromList);
+    el.btnLobbyRefresh.addEventListener('click', fetchRooms);
+    el.btnLobbyRetry.addEventListener('click', fetchRooms);
 
-    el.btnLobbyCopy.addEventListener('click', onCopyClick);
-    el.btnLobbyCreateBack.addEventListener('click', onBackFromSubPanel);
-
-    el.lobbyJoinInput.addEventListener('input', onJoinInput);
-    el.lobbyJoinInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !el.btnLobbyJoinSubmit.disabled) onJoinSubmit();
-    });
-    el.btnLobbyJoinSubmit.addEventListener('click', onJoinSubmit);
-    el.btnLobbyJoinBack.addEventListener('click', onBackFromSubPanel);
+    el.btnLobbyWaitingBack.addEventListener('click', onBackFromWaiting);
   }
 
   return { init, showDeckSelect, playAgain };

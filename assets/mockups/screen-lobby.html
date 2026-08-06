@@ -2,17 +2,13 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8" />
-<title>ARCANE LEDGER — 로비/대기/접속끊김 목업 (plan 4.10, spec §6.2, §8.2)</title>
+<title>ARCANE LEDGER — 로비(방 목록)/대기/접속끊김 목업 (plan 4.10, spec §6.2, §8.2)</title>
 <link rel="stylesheet" href="../../css/style.css" />
 <link rel="stylesheet" href="pvp-components.css" />
 </head>
 <body>
 
-<svg style="display:none" aria-hidden="true">
-  <symbol id="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-    <rect x="9" y="9" width="11" height="11" rx="1.5" />
-    <path d="M6 15H5C4.4 15 4 14.6 4 14V5C4 4.4 4.4 4 5 4H14C14.6 4 15 4.4 15 5V6" />
-  </symbol>
+<svg style="position:absolute; width:0; height:0; overflow:hidden" aria-hidden="true">
   <symbol id="icon-crown" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
     <path d="M4 18H20L21 8L16 12L12 6L8 12L3 8L4 18Z" />
   </symbol>
@@ -21,68 +17,144 @@
     <line x1="12" y1="9.5" x2="12" y2="14.5" />
     <circle cx="12" cy="17.3" r="0.9" fill="currentColor" stroke="none" />
   </symbol>
+  <symbol id="icon-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4.5 12A7.5 7.5 0 0 1 12 4.5C14.8 4.5 17.2 6 18.5 8.3" />
+    <path d="M18.5 4.5V8.3H14.7" />
+    <path d="M19.5 12A7.5 7.5 0 0 1 12 19.5C9.2 19.5 6.8 18 5.5 15.7" />
+    <path d="M5.5 19.5V15.7H9.3" />
+  </symbol>
+  <symbol id="icon-chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M9 5L16 12L9 19" />
+  </symbol>
 </svg>
 
 <header class="topbar">
   <span class="brand">ARCANE LEDGER</span>
-  <div class="topbar-right"><span class="room-label">방 A3F9K2</span></div>
 </header>
+<!-- No .room-label in this header (unlike the old room-code version of this file): spec
+     §6.2.4 explicitly demotes the room identifier to an internal-only ID the player never
+     sees, and this file no longer has any screen state where a human-facing code exists. -->
 
 <div class="mockup-page">
 
   <div>
-    <div class="mockup-caption">state: 방 만들기 — 코드 발급, 상대 대기 중 (spec §6.2)</div>
+    <div class="mockup-caption">screen: 방 목록 — 기본, 열린 방 있음 (spec §6.2.1-§6.2.2)</div>
+    <div class="overlay-panel lobby-list-shell">
+      <div class="lobby-list-topbar">
+        <h2 style="margin:0;">방 목록</h2>
+        <button class="btn-refresh" title="새로고침"><svg class="icon"><use href="#icon-refresh"></use></svg></button>
+      </div>
+      <button class="btn btn-primary btn-create-room">+ 방 만들기</button>
+      <div class="room-list">
+        <button class="room-row"><span class="room-host">야공이</span><span class="room-wait">3초 전</span><svg class="room-row-arrow"><use href="#icon-chevron-right"></use></svg></button>
+        <button class="room-row"><span class="room-host">붉은장미</span><span class="room-wait">28초 전</span><svg class="room-row-arrow"><use href="#icon-chevron-right"></use></svg></button>
+        <button class="room-row"><span class="room-host">천둥지기</span><span class="room-wait">41초 전</span><svg class="room-row-arrow"><use href="#icon-chevron-right"></use></svg></button>
+        <button class="room-row"><span class="room-host">야공이</span><span class="room-wait">1분 전</span><svg class="room-row-arrow"><use href="#icon-chevron-right"></use></svg></button>
+        <button class="room-row"><span class="room-host">먹구름</span><span class="room-wait">3분 전</span><svg class="room-row-arrow"><use href="#icon-chevron-right"></use></svg></button>
+      </div>
+    </div>
+    <p class="mockup-note">
+      상단 "+ 방 만들기"는 목록 상태와 무관하게 항상 노출(spec §6.2.1) — 목록 유무에 좌우되는 조건부 버튼이
+      아니다. 행 자체가 참가 액션이라(클릭 = 즉시 참가 시도, 확인 버튼 없음) 화살표 아이콘은 기본 상태에서
+      숨겨두고 hover/focus에서만 살짝 밀려 나오며 gold로 바뀐다 — "클릭 가능한 행"이라는 신호를 hover 의도가
+      있을 때만 드러내고, 평상시 목록은 8.7 전적 화면의 조용한 리스트 느낌을 그대로 유지한다. 동명 호스트
+      두 번째 "야공이" 행은 spec §6.2.2가 다룬 표시 이름 중복 케이스 — 정렬(최신순)과 대기 시간만으로 이미
+      행끼리 구별되므로 별도 식별자를 붙이지 않는다.
+    </p>
+  </div>
+
+  <div>
+    <div class="mockup-caption">state: 방 목록 — 빈 상태 (spec §6.2.5)</div>
+    <div class="overlay-panel lobby-list-shell">
+      <div class="lobby-list-topbar">
+        <h2 style="margin:0;">방 목록</h2>
+        <button class="btn-refresh" title="새로고침"><svg class="icon"><use href="#icon-refresh"></use></svg></button>
+      </div>
+      <button class="btn btn-primary btn-create-room">+ 방 만들기</button>
+      <div class="room-list-empty">
+        <p>현재 열려 있는 방이 없습니다</p>
+        <button class="btn btn-primary">+ 방 만들기</button>
+      </div>
+    </div>
+    <p class="mockup-note">
+      빈 상태 전용 두 번째 CTA(spec §6.2.5) — 상단 상시 버튼과 별개로, 목록이 비어 "방을 만드는 것"이 사실상
+      유일한 다음 행동일 때 화면 중앙에 한 번 더 크게 둔다. 점선 테두리로 "아직 아무것도 없는 자리"임을
+      암시(8.2의 빈 덱 슬롯 `.deck-slot-tile.empty`와 같은 어휘 재사용) — 아래 에러 상태와는 의도적으로
+      다른 색/문구를 써서 "정상적으로 비어 있음"과 "불러오기 실패"를 헷갈리지 않게 했다.
+    </p>
+  </div>
+
+  <div>
+    <div class="mockup-caption">state: 방 목록 — 불러오기 실패 (spec §6.2.5, 빈 상태와 시각적으로 구분)</div>
+    <div class="overlay-panel lobby-list-shell">
+      <div class="lobby-list-topbar">
+        <h2 style="margin:0;">방 목록</h2>
+        <button class="btn-refresh" title="새로고침"><svg class="icon"><use href="#icon-refresh"></use></svg></button>
+      </div>
+      <button class="btn btn-primary btn-create-room">+ 방 만들기</button>
+      <div class="room-list-error">
+        <svg class="icon icon-warning"><use href="#icon-warning"></use></svg>
+        <p>목록을 불러오지 못했습니다</p>
+        <button class="btn btn-secondary">다시 시도</button>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="mockup-caption">state: 방 목록 — 참가 시도 중 방이 이미 참 (레이스 컨디션 토스트, spec §6.2.6)</div>
+    <div class="overlay-panel lobby-list-shell">
+      <div class="lobby-list-topbar">
+        <h2 style="margin:0;">방 목록</h2>
+        <button class="btn-refresh refreshing" title="새로고침 중"><svg class="icon"><use href="#icon-refresh"></use></svg></button>
+      </div>
+      <button class="btn btn-primary btn-create-room">+ 방 만들기</button>
+      <div class="lobby-toast">
+        <svg class="icon"><use href="#icon-warning"></use></svg>
+        이미 다른 플레이어가 입장한 방입니다
+      </div>
+      <div class="room-list">
+        <button class="room-row"><span class="room-host">붉은장미</span><span class="room-wait">방금 전</span><svg class="room-row-arrow"><use href="#icon-chevron-right"></use></svg></button>
+        <button class="room-row"><span class="room-host">천둥지기</span><span class="room-wait">31초 전</span><svg class="room-row-arrow"><use href="#icon-chevron-right"></use></svg></button>
+        <button class="room-row"><span class="room-host">먹구름</span><span class="room-wait">3분 전</span><svg class="room-row-arrow"><use href="#icon-chevron-right"></use></svg></button>
+      </div>
+    </div>
+    <p class="mockup-note">
+      클릭했던 "야공이" 행은 §6.2.6-3 "그 즉시 목록을 한 번 자동 갱신"에 따라 이미 목록에서 사라진 뒤의
+      상태를 보여준다 — 새로고침 버튼도 이 자동 갱신을 반영해 회전 중(`.refreshing`)으로 함께 그렸다. 토스트는
+      별도 에러 화면이 아니라 목록 화면 맨 위에 뜨는 인라인 배너(약 2~3초 후 자동 소멸 — 정확한 타이밍/제거는
+      JS 담당, 여기서는 등장 트랜지션과 색/아이콘만 확정)이며, 코드 입력이 없어진 지금은 인라인 에러 토스트가
+      과거 `.lobby-inline-error`(입력창 아래 에러 문구)를 대체하는 자리다 — 색(crimson)과 경고 아이콘 재사용은
+      동일.
+    </p>
+  </div>
+
+  <div>
+    <div class="mockup-caption">state: 방 만들기 — 상대 대기 중 (spec §6.2.1 step 2, 코드 표시/복사 없음)</div>
     <div class="overlay-panel lobby-panel">
       <h2>방 만들기</h2>
-      <p class="subtitle" style="margin-bottom:6px;">이 코드를 상대에게 공유하세요</p>
-      <div class="lobby-code-box">
-        <span class="lobby-code">A3F9K2</span>
-        <button class="btn-copy" title="코드 복사"><svg class="icon"><use href="#icon-copy"></use></svg></button>
-      </div>
+      <p class="subtitle">상대를 기다리는 중...</p>
       <div class="lobby-waiting"><span class="spinner"></span>상대를 기다리는 중...</div>
     </div>
   </div>
 
   <div>
-    <div class="mockup-caption">state: 방 만들기 — 상대 참가 완료 (자동으로 다음 단계 전환, spec §6.2)</div>
+    <div class="mockup-caption">state: 방 만들기 — 상대 참가 완료 (자동으로 매치 시작 시퀀스 전환, spec §6.2.1 step 2-3)</div>
     <div class="overlay-panel lobby-panel">
       <h2>방 만들기</h2>
-      <p class="subtitle" style="margin-bottom:6px;">이 코드를 상대에게 공유하세요</p>
-      <div class="lobby-code-box">
-        <span class="lobby-code">A3F9K2</span>
-        <button class="btn-copy copied" title="복사됨"><svg class="icon"><use href="#icon-copy"></use></svg></button>
-      </div>
+      <p class="subtitle">상대를 기다리는 중...</p>
       <div class="opponent-found"><svg class="icon"><use href="#icon-crown"></use></svg>야공이 님이 입장했습니다</div>
     </div>
+    <p class="mockup-note">
+      코드 발급/복사 단계가 통째로 사라졌다(spec §6.2.1, §6.2.4) — 호스트 입장에서는 "만들기 버튼 클릭 →
+      대기 화면"이 전부. 이 "OOO 님이 입장했습니다" 플래시는 호스트 쪽(상대가 내 방에 들어옴)뿐 아니라 목록에서
+      행을 클릭해 참가에 성공한 쪽(spec §6.2.1 step 3: "성공하면 화면에 호스트의 표시 이름이 나타나고 자동으로
+      매치 시작 시퀀스로 전환")도 동일한 `.opponent-found` 컴포넌트를 그대로 재사용한다 — 문구만 상황에 맞게
+      바뀔 뿐(참가자 쪽은 "OOO 님과 매칭되었습니다" 류) 시각 언어는 하나로 통일.
+    </p>
   </div>
 
   <div>
-    <div class="mockup-caption">state: 코드로 참가하기 (기본 / 에러) — spec §6.2</div>
-    <div class="mockup-row">
-      <div class="overlay-panel lobby-panel">
-        <h2>코드로 참가하기</h2>
-        <p class="subtitle" style="margin-bottom:6px;">6자리 방 코드를 입력하세요</p>
-        <div class="lobby-join-form">
-          <input maxlength="6" placeholder="______" value="A3F9K" />
-          <button class="btn btn-primary" disabled>참가</button>
-        </div>
-      </div>
-
-      <div class="overlay-panel lobby-panel">
-        <h2>코드로 참가하기</h2>
-        <p class="subtitle" style="margin-bottom:6px;">6자리 방 코드를 입력하세요</p>
-        <div class="lobby-join-form">
-          <input maxlength="6" value="ZZ0000" />
-          <button class="btn btn-primary">참가</button>
-        </div>
-        <p class="lobby-inline-error">존재하지 않는 방입니다</p>
-      </div>
-    </div>
-    <p class="mockup-note">6자리가 채워지기 전까지 "참가" 버튼은 비활성(왼쪽). 잘못된 코드는 입력값을 유지한 채 인라인 에러만 표시(오른쪽) — spec §6.2.</p>
-  </div>
-
-  <div>
-    <div class="mockup-caption">overlay: 상대방 접속 끊김 (spec §8.2, 45초 유예)</div>
+    <div class="mockup-caption">overlay: 상대방 접속 끊김 (spec §8.2, 45초 유예 — 이번 개정과 무관, 변경 없음)</div>
     <div class="mockup-row">
 
       <div class="disconnect-overlay" style="width:420px;">

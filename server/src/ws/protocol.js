@@ -19,28 +19,43 @@
  * Client -> Server
  * ---------------------------------------------------------------------------
  * room_create   { deckSize }
- *   Create a new room. Server replies ROOM_CREATED with a generated code.
- *   `deckSize` (QA finding #3, docs/qa/online-pvp-milestone.md) is this
- *   client's own deck's real card count, known client-side by this point
- *   since deck selection (spec §6.1) always happens before the lobby (§6.2)
- *   -- relayed to the opponent (OPPONENT_JOINED) purely so their public
- *   deck-count display (spec §7.2) has a real number instead of guessing.
- *   Not validated/enforced here (20-30 range enforcement is entirely
- *   routes/decks.js's job, an existing boundary); an omitted/non-numeric
- *   value is just treated as "unknown" (null) rather than silently coerced.
+ *   Create a new room. Server replies ROOM_CREATED with a generated
+ *   identifier (`code`). spec-online-pvp.md §6.2.4 (2026-08 revision): this
+ *   value is now internal-only relay bookkeeping -- the client never shows
+ *   it to the player or asks them to share/type it. The room becomes
+ *   visible to every other logged-in client's room list (GET /api/rooms,
+ *   server/src/routes/rooms.js) the instant it's created; joining it is
+ *   driven entirely by clicking a row in that list, which hands the client
+ *   this exact `code` value to send back in room_join below -- a human
+ *   never sees or enters it. `deckSize` (QA finding #3, docs/qa/
+ *   online-pvp-milestone.md) is this client's own deck's real card count,
+ *   known client-side by this point since deck selection (spec §6.1) always
+ *   happens before the lobby (§6.2) -- relayed to the opponent
+ *   (OPPONENT_JOINED) purely so their public deck-count display (spec §7.2)
+ *   has a real number instead of guessing. Not validated/enforced here
+ *   (20-30 range enforcement is entirely routes/decks.js's job, an existing
+ *   boundary); an omitted/non-numeric value is just treated as "unknown"
+ *   (null) rather than silently coerced.
  *
  * room_join     { code, deckSize }
- *   Join (or reconnect to) a room by its code. Server replies ROOM_JOINED to
- *   the joiner and OPPONENT_JOINED/OPPONENT_RECONNECTED to the other player
- *   already in the room, if any. On a reconnect, this also clears that
- *   player's 45s auto-forfeit grace timer (2.7) and, if both players are now
- *   connected again, resumes the paused turn timer (2.5) from wherever it
- *   was left off -- see ROOM_JOINED's `turn` field below. `deckSize`: same
- *   meaning/purpose as room_create's -- see above. On a reconnect, a
- *   missing/invalid value does NOT overwrite the deck size already recorded
- *   from this player's original join (deck size can't legitimately change
- *   mid-match, and a page-reload reconnect may not have it cached
- *   client-side anymore).
+ *   Join (or reconnect to) a room by its identifier. Server replies
+ *   ROOM_JOINED to the joiner and OPPONENT_JOINED/OPPONENT_RECONNECTED to
+ *   the other player already in the room, if any. `code` here is the same
+ *   internal id room_create's reply carried -- for a fresh join (the common
+ *   §6.2 room-list-click case) the client already has it from the room-list
+ *   response (routes/rooms.js's `id` field, same value), never from player
+ *   input. For a reconnect (spec §8.3), the client resends the room id it
+ *   remembers from its own original join -- still never re-entered by the
+ *   player; §8.3 explicitly does NOT support recovering that id after a
+ *   page reload/tab close, only a same-tab network blip. On a reconnect,
+ *   this also clears that player's 45s auto-forfeit grace timer (2.7) and,
+ *   if both players are now connected again, resumes the paused turn timer
+ *   (2.5) from wherever it was left off -- see ROOM_JOINED's `turn` field
+ *   below. `deckSize`: same meaning/purpose as room_create's -- see above.
+ *   On a reconnect, a missing/invalid value does NOT overwrite the deck
+ *   size already recorded from this player's original join (deck size
+ *   can't legitimately change mid-match, and a page-reload reconnect may
+ *   not have it cached client-side anymore).
  *
  * leave_room    {}
  *   Voluntarily leave the current room (spec §6.2 "뒤로" button). If no

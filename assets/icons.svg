@@ -264,6 +264,22 @@
     <circle cx="12" cy="17.3" r="0.9" fill="currentColor" stroke="none" />
   </symbol>
 
+  <!-- Lobby room-list additions (spec-online-pvp.md §6.2 — replaces the room-code
+       display/copy flow, art-direction.md §8.4). icon-copy above is no longer used by
+       the live lobby (kept in the sheet in case another surface still wants a generic
+       copy affordance) but is superseded here for the lobby specifically. -->
+
+  <symbol id="icon-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4.5 12A7.5 7.5 0 0 1 12 4.5C14.8 4.5 17.2 6 18.5 8.3" />
+    <path d="M18.5 4.5V8.3H14.7" />
+    <path d="M19.5 12A7.5 7.5 0 0 1 12 19.5C9.2 19.5 6.8 18 5.5 15.7" />
+    <path d="M5.5 19.5V15.7H9.3" />
+  </symbol>
+
+  <symbol id="icon-chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M9 5L16 12L9 19" />
+  </symbol>
+
   <!-- Card back: 132x184 viewBox to match the card frame exactly (art-direction.md
        §3). Fixed palette colors (not currentColor) since a hidden card always reads
        the same regardless of context: geometric/emblematic, no illustration, same

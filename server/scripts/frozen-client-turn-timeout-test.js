@@ -197,6 +197,12 @@ async function loginAndReachLobby(browser, account) {
 // (testing the frozen-client path in isolation), Scenario 2 deliberately
 // leaves the ACTIVE player's overlay open (that's the whole point of Repro
 // B), so that decision is left to each scenario.
+// spec-online-pvp.md §6.2 (2026-08 revision): room-code create/join was
+// replaced by open room-list matchmaking (see the task report for the
+// migration) -- host creates via '+ 방 만들기' and waits, the other client
+// finds the room in its polled list and clicks the row to join (no code
+// typed by anyone). Updated here to drive the real new UI instead of the
+// retired #lobby-code/#lobby-join-input elements.
 async function setUpTwoClientsAtHowto(aliceName, bobName) {
   const alice = await signup(aliceName);
   const bob = await signup(bobName);
@@ -208,21 +214,23 @@ async function setUpTwoClientsAtHowto(aliceName, bobName) {
   ]);
 
   await pageA.click('#btn-lobby-create');
-  // '......' is the immediate placeholder (js/match.js's setCreateStatusWaiting
-  // companion) before the server's real room_created reply lands -- also 6
-  // chars, so a plain length check would false-positive on it. Wait for an
-  // actual A-Z0-9 code instead.
-  await waitFor(pageA, () => /^[A-Z0-9]{6}$/.test(document.getElementById('lobby-code').textContent));
-  const roomCode = await pageA.$eval('#lobby-code', (el) => el.textContent);
+  await waitFor(pageA, () => !document.getElementById('lobby-panel-waiting').classList.contains('hidden'));
 
-  await pageB.click('#btn-lobby-show-join');
-  await pageB.fill('#lobby-join-input', roomCode);
-  await pageB.click('#btn-lobby-join-submit');
+  // pageB is already sitting on the room-list screen (loginAndReachLobby
+  // waits for #screen-lobby to unhide) -- click the manual refresh button on
+  // each poll iteration so this doesn't have to wait out the full 3s auto-
+  // poll interval (spec §6.2.3) to see Alice's just-created room show up.
+  await waitFor(pageB, () => {
+    const refreshBtn = document.getElementById('btn-lobby-refresh');
+    if (refreshBtn) refreshBtn.click();
+    return document.querySelectorAll('#room-list .room-row').length > 0;
+  }, { timeoutMs: 15000 });
+  await pageB.click('.room-row');
 
   await waitFor(pageA, () => typeof AL !== 'undefined' && AL.state.screen === 'howto', { timeoutMs: 15000 });
   await waitFor(pageB, () => typeof AL !== 'undefined' && AL.state.screen === 'howto', { timeoutMs: 15000 });
 
-  return { browserA, browserB, pageA, pageB, roomCode };
+  return { browserA, browserB, pageA, pageB };
 }
 
 async function scenario1FrozenClient() {

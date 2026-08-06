@@ -57,11 +57,18 @@
     <line x1="12" y1="9.5" x2="12" y2="14.5" />
     <circle cx="12" cy="17.3" r="0.9" fill="currentColor" stroke="none" />
   </symbol>
-  <!-- Lobby room-code copy icon (plan.md 4.5, spec §6.2), lifted verbatim
-       from assets/mockups/screen-lobby.html's inline sprite. -->
-  <symbol id="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-    <rect x="9" y="9" width="11" height="11" rx="1.5" />
-    <path d="M6 15H5C4.4 15 4 14.6 4 14V5C4 4.4 4.4 4 5 4H14C14.6 4 15 4.4 15 5V6" />
+  <!-- Lobby room-list additions (spec-online-pvp.md §6.2), lifted verbatim
+       from assets/icons.svg / assets/mockups/screen-lobby.html's inline
+       sprite -- manual refresh button (§6.2.3) and the room-row hover
+       chevron (§6.2.1). -->
+  <symbol id="icon-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4.5 12A7.5 7.5 0 0 1 12 4.5C14.8 4.5 17.2 6 18.5 8.3" />
+    <path d="M18.5 4.5V8.3H14.7" />
+    <path d="M19.5 12A7.5 7.5 0 0 1 12 19.5C9.2 19.5 6.8 18 5.5 15.7" />
+    <path d="M5.5 19.5V15.7H9.3" />
+  </symbol>
+  <symbol id="icon-chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M9 5L16 12L9 19" />
   </symbol>
   <symbol id="icon-char-sentinel" viewBox="0 0 100 100" fill="currentColor" fill-rule="evenodd">
     <path d="M50 6 L64 16 L68 40 L56 48 L76 56 L88 96 L12 96 L24 56 L44 48 L32 40 L36 16 Z
@@ -501,42 +508,61 @@
     </div>
   </section>
 
-  <!-- Lobby: create/join room (plan.md 4.5, spec §6.2). Three sibling
-       .overlay-panel sub-states (select / create / join), same
-       show-one-hide-rest pattern as every other screen here -- visuals
-       lifted from assets/mockups/screen-lobby.html / pvp-components.css. -->
+  <!-- Lobby: open room-list matchmaking (spec-online-pvp.md §6.2, 2026-08
+       revision -- replaces the old room-code create/join flow entirely).
+       Two sibling states, same show-one-hide-rest pattern as every other
+       screen here:
+         - #room-list-body: the default "browsing" state -- persistent
+           "+ 방 만들기" button, the polled room list (§6.2.2-§6.2.3), empty
+           state (§6.2.5), and a separate network-error state.
+         - #lobby-panel-waiting: "대기 화면" after creating a room (host) or
+           immediately after a successful room_join (joiner, brief "matched"
+           flash before the real match-start handoff) -- reuses the same
+           .opponent-found component for both, per assets/mockups/screen-
+           lobby.html's own note on that shared pattern.
+       Markup/classes (.lobby-list-shell/.lobby-list-topbar/.room-host/
+       .room-wait/.room-row-arrow/.lobby-toast/.room-list-empty/
+       .room-list-error) lifted verbatim from assets/mockups/screen-
+       lobby.html + pvp-components.css §"4.10 lobby / rooms" (updated by
+       the pixel-artist in parallel with this task -- see the task report).
+       The back-navigation buttons and the #room-list-body/#lobby-panel-
+       waiting screen-state wiring have no mockup source (that file only
+       ever shows one reviewed fragment at a time, same as every other
+       mockup in this project) -- programmer-added chrome, same pattern as
+       3.1/3.2's deck-management-page additions below. -->
   <section id="screen-lobby" class="screen hidden">
-    <div id="lobby-panel-select" class="overlay-panel lobby-panel">
-      <h2>매치 참가</h2>
-      <p class="subtitle">방을 만들거나 코드로 참가하세요</p>
-      <div class="lobby-select-actions">
-        <button id="btn-lobby-create" class="btn btn-primary">방 만들기</button>
-        <button id="btn-lobby-show-join" class="btn btn-secondary">코드로 참가하기</button>
+    <div id="room-list-body" class="overlay-panel lobby-list-shell">
+      <div class="lobby-list-topbar">
+        <button id="btn-lobby-back-to-deck" class="btn btn-secondary">← 덱 선택으로</button>
+        <h2>방 목록</h2>
+        <button id="btn-lobby-refresh" class="btn-refresh" title="새로고침" aria-label="목록 새로고침"><svg class="icon"><use href="#icon-refresh"></use></svg></button>
       </div>
-      <button id="btn-lobby-back-to-deck" class="btn btn-secondary lobby-back-link">← 덱 선택으로</button>
+
+      <button id="btn-lobby-create" class="btn btn-primary btn-create-room">+ 방 만들기</button>
+
+      <p id="lobby-toast" class="lobby-toast hidden"><svg class="icon"><use href="#icon-warning"></use></svg><span id="lobby-toast-text"></span></p>
+
+      <div id="room-list-loading" class="deck-status hidden">불러오는 중...</div>
+
+      <div id="room-list" class="room-list"></div>
+
+      <div id="room-list-empty" class="room-list-empty hidden">
+        <p>현재 열려 있는 방이 없습니다</p>
+        <button id="btn-lobby-create-empty" class="btn btn-primary">+ 방 만들기</button>
+      </div>
+
+      <div id="room-list-error" class="room-list-error hidden">
+        <svg class="icon icon-warning"><use href="#icon-warning"></use></svg>
+        <p>목록을 불러오지 못했습니다</p>
+        <button id="btn-lobby-retry" class="btn btn-secondary">다시 시도</button>
+      </div>
     </div>
 
-    <div id="lobby-panel-create" class="overlay-panel lobby-panel hidden">
-      <h2>방 만들기</h2>
-      <p class="subtitle" style="margin-bottom:6px;">이 코드를 상대에게 공유하세요</p>
-      <div class="lobby-code-box">
-        <span id="lobby-code" class="lobby-code"></span>
-        <button id="btn-lobby-copy" class="btn-copy" title="코드 복사"><svg class="icon"><use href="#icon-copy"></use></svg></button>
-      </div>
-      <div id="lobby-create-status" class="lobby-waiting"><span class="spinner"></span>상대를 기다리는 중...</div>
-      <button id="btn-lobby-create-back" class="btn btn-secondary lobby-back-link">← 뒤로</button>
-    </div>
-
-    <div id="lobby-panel-join" class="overlay-panel lobby-panel hidden">
-      <h2>코드로 참가하기</h2>
-      <p class="subtitle" style="margin-bottom:6px;">6자리 방 코드를 입력하세요</p>
-      <div id="lobby-join-form" class="lobby-join-form">
-        <input type="text" id="lobby-join-input" maxlength="6" placeholder="______" autocomplete="off" />
-        <button id="btn-lobby-join-submit" class="btn btn-primary" disabled>참가</button>
-      </div>
-      <p id="lobby-join-error" class="lobby-inline-error hidden"></p>
-      <div id="lobby-join-status" class="lobby-waiting hidden"><span class="spinner"></span>연결하는 중...</div>
-      <button id="btn-lobby-join-back" class="btn btn-secondary lobby-back-link">← 뒤로</button>
+    <div id="lobby-panel-waiting" class="overlay-panel lobby-panel hidden">
+      <h2 id="lobby-waiting-title">방 만들기</h2>
+      <p id="lobby-waiting-subtitle" class="subtitle">상대를 기다리는 중...</p>
+      <div id="lobby-waiting-status" class="lobby-waiting"><span class="spinner"></span>상대를 기다리는 중...</div>
+      <button id="btn-lobby-waiting-back" class="btn btn-secondary lobby-back-link hidden">← 뒤로 (방 취소)</button>
     </div>
   </section>
 

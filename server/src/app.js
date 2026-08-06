@@ -3,6 +3,7 @@ const cors = require('cors');
 const authRoutes = require('./routes/auth');
 const deckRoutes = require('./routes/decks');
 const matchHistoryRoutes = require('./routes/matchHistory');
+const roomRoutes = require('./routes/rooms');
 const { CLIENT_ORIGIN, IS_PRODUCTION } = require('./config');
 
 function createApp() {
@@ -32,6 +33,7 @@ function createApp() {
   app.use('/api/auth', authRoutes);
   app.use('/api/decks', deckRoutes);
   app.use('/api/match-history', matchHistoryRoutes);
+  app.use('/api/rooms', roomRoutes);
 
   // Fallback error handler so unexpected throws return JSON, not an HTML
   // stack trace, to a game client.
