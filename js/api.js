@@ -1,19 +1,17 @@
 /* ARCANE LEDGER — thin fetch wrapper for the backend (server/).
  *
  * The client (this file set) and the API server are two separate
- * processes/origins (no shared dev server exists yet -- Phase 4.1's
- * login/signup UI is the first thing that will really depend on this file).
- * Every request sends `credentials: 'include'` so the HttpOnly session
- * cookie (server/src/lib/session.js) round-trips; the server's CORS config
+ * processes/origins (in production, two separate Render services on two
+ * different onrender.com subdomains -- see render.yaml). Every request
+ * sends `credentials: 'include'` so the HttpOnly session cookie
+ * (server/src/lib/session.js) round-trips; the server's CORS config
  * (server/src/app.js) is what makes that legal cross-origin.
  *
- * API_BASE_URL is a placeholder local-dev value, not a real config system --
- * Phase 4 (or deployment) will need a real way to point this at a hosted
- * server (Render, per online-pvp-plan.md's infra decision); building that
- * out now would be speculative for a session that's scoped to deck
- * management only.
+ * API_BASE_URL comes from js/config.js (loaded before this file, see
+ * index.html) rather than being hardcoded here, so the same file set works
+ * unmodified against local dev and the deployed Render API.
  */
-const API_BASE_URL = 'http://localhost:3001';
+const API_BASE_URL = CONFIG.API_BASE_URL;
 
 class ApiError extends Error {
   constructor(message, status, data) {

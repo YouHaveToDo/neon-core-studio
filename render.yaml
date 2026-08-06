@@ -1,0 +1,48 @@
+# Render Blueprint (https://render.com/docs/blueprint-spec). Deploys the
+# whole project -- API + static client -- from this one file via Render's
+# "New > Blueprint" flow, so the CEO doesn't have to hand-configure either
+# service in the dashboard.
+#
+# Two services, matching this repo's actual shape (no build step for the
+# client, plain Node for the API -- see CLAUDE.md / js/api.js / js/config.js):
+#   1. neon-core-api    - Node Web Service running server/ (Express + WS relay).
+#   2. neon-core-client - Static Site serving the repo root as-is.
+#
+# These end up at (assuming the slugs below are available; Render appends a
+# suffix and tells you at blueprint-apply time if not -- if that happens,
+# update js/config.js's PRODUCTION_API_BASE_URL and this file's
+# CLIENT_ORIGIN to match whatever Render actually assigned):
+#   https://neon-core-api.onrender.com
+#   https://neon-core-client.onrender.com
+
+services:
+  - type: web
+    name: neon-core-api
+    runtime: node
+    plan: free
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Must equal the static site's real URL below -- server/src/app.js's
+      # CORS config and server/src/ws/server.js's WS-upgrade Origin check
+      # both reject cross-origin requests/connections when this doesn't
+      # match, by design (safe default over silently allowing everything).
+      - key: CLIENT_ORIGIN
+        value: https://neon-core-client.onrender.com
+      # Secrets: NOT written here on purpose (sync: false marks these for
+      # manual entry in Render's dashboard instead of the blueprint file).
+      # DATABASE_URL: the Supabase Session Pooler connection string (already
+      # provisioned + migrated -- see server/.env.example for the expected
+      # shape/sslmode).
+      - key: DATABASE_URL
+        sync: false
+
+  - type: web
+    name: neon-core-client
+    runtime: static
+    buildCommand: ""
+    staticPublishPath: .

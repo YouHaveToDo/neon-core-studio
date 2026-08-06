@@ -1,7 +1,11 @@
 /**
  * WS relay server (plan.md Phase 2.1/2.3/2.5/2.6/2.7). Attaches to the same
- * HTTP server as the Express app (single Render service, single port)
- * rather than listening on a separate port.
+ * HTTP server as the Express app -- this API process's own single port,
+ * shared by HTTP and WS traffic -- rather than listening on a separate port.
+ * (This is unrelated to how many Render services the overall project has;
+ * the static client is a separate Render service with no Node process of
+ * its own at all, see render.yaml -- this comment is only about the API
+ * service's internal HTTP+WS port sharing.)
  *
  * Auth (2.3): the session token lives in an HttpOnly cookie (set by the
  * Phase 1 /api/auth endpoints), which the browser automatically attaches to
@@ -35,9 +39,29 @@ const {
   DISCONNECT_GRACE_MS,
   CLAIM_FORFEIT_FLOOR_MS,
   WS_HEARTBEAT_INTERVAL_MS,
+  CLIENT_ORIGIN,
+  IS_PRODUCTION,
 } = require('../config');
 
 const WS_PATH = '/ws';
+
+// Now that the session cookie is SameSite=None in production (required for
+// the client/API cross-site onrender.com topology -- see lib/session.js),
+// the browser will attach it to a WS upgrade request no matter which site
+// initiated the connection, not just this project's own client. SameSite=Lax
+// used to be an implicit CSRF guard for the upgrade handshake; None gives
+// that up, so the Origin header (which the ws upgrade request, like any
+// browser-initiated request, always carries and which JS cannot spoof) is
+// checked explicitly here instead -- same allowlist app.js's CORS config
+// already uses for HTTP, so there's one source of truth (CLIENT_ORIGIN) for
+// "which origins may use this account's session," not two divergent ones.
+// Matches app.js's dev behavior too: unset/non-production allows any origin,
+// since local dev has no fixed client port.
+function isAllowedOrigin(origin) {
+  if (!IS_PRODUCTION) return true;
+  if (!origin || !CLIENT_ORIGIN) return false;
+  return CLIENT_ORIGIN.split(',').map((s) => s.trim()).includes(origin);
+}
 
 function attachWebSocketServer(httpServer) {
   const wss = new WebSocketServer({ noServer: true });
@@ -45,6 +69,12 @@ function attachWebSocketServer(httpServer) {
   httpServer.on('upgrade', async (req, socket, head) => {
     const url = req.url || '';
     if (!url.startsWith(WS_PATH)) {
+      socket.destroy();
+      return;
+    }
+
+    if (!isAllowedOrigin(req.headers.origin)) {
+      socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
       socket.destroy();
       return;
     }

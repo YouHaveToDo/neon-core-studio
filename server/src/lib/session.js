@@ -37,13 +37,28 @@ async function findAccountBySessionToken(token) {
   return result.rows[0] || null;
 }
 
+// SameSite: `onrender.com` is on the public suffix list (Render registers it
+// specifically so that different customers'/services' `*.onrender.com`
+// subdomains are treated as different sites, not as one shared domain) --
+// verified directly against https://publicsuffix.org/list/public_suffix_list.dat.
+// That means the client (neon-core-client.onrender.com) and this API
+// (neon-core-api.onrender.com) are cross-SITE in production, not just
+// cross-origin, even though they share the `onrender.com` suffix. `lax`
+// cookies are withheld from cross-site fetch/XHR/WS-upgrade requests (they
+// only ride along on top-level navigations), so `lax` would silently break
+// every credentialed request js/api.js/js/ws.js make in production -- this
+// only worked in local dev because two `localhost` ports count as same-site.
+// `none` is required for the cross-site case, and `none` requires `Secure`
+// (HTTPS-only), which is already tied to IS_PRODUCTION below, so this is
+// safe: production (always HTTPS on Render) gets `none`+Secure, dev (plain
+// http://) keeps `lax`, which still works fine there since dev is same-site.
 function setSessionCookie(res, token, expiresAt) {
   res.setHeader(
     'Set-Cookie',
     cookie.serialize(SESSION_COOKIE_NAME, token, {
       httpOnly: true,
       secure: IS_PRODUCTION, // Secure requires HTTPS; local dev runs plain http://
-      sameSite: 'lax',
+      sameSite: IS_PRODUCTION ? 'none' : 'lax',
       path: '/',
       expires: expiresAt,
     })
@@ -56,7 +71,7 @@ function clearSessionCookie(res) {
     cookie.serialize(SESSION_COOKIE_NAME, '', {
       httpOnly: true,
       secure: IS_PRODUCTION,
-      sameSite: 'lax',
+      sameSite: IS_PRODUCTION ? 'none' : 'lax',
       path: '/',
       expires: new Date(0),
     })

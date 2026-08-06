@@ -23,10 +23,14 @@ const Net = (() => {
   const closeHandlers = [];
 
   function wsUrl() {
-    // API_BASE_URL (js/api.js) is the same origin/port the relay listens on
-    // (server/src/index.js attaches the WS server to the same HTTP server as
-    // the Express app) -- just swap the scheme, same host:port, same /ws path
-    // server/src/ws/server.js expects (WS_PATH).
+    // API_BASE_URL (global const from js/config.js, read into js/api.js) is
+    // the same origin/port the relay listens on (server/src/index.js
+    // attaches the WS server to the same HTTP server as the Express app) --
+    // just swap the scheme, same host:port, same /ws path server/src/ws/
+    // server.js expects (WS_PATH). This holds in both local dev and
+    // production even though the WS relay's origin is NOT the client's own
+    // origin there (client and API are separate Render services) -- it only
+    // needs to match the API's origin, which is exactly what API_BASE_URL is.
     return API_BASE_URL.replace(/^http/, 'ws') + '/ws';
   }
 
