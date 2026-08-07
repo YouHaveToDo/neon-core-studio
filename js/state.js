@@ -91,6 +91,20 @@ const AL = (() => {
     // gate (setFrozen) and honors it in every local input entry point below.
     frozen: false,
     matchResult: null, // null | 'win' | 'loss' | 'win_forfeit' | 'void' — set on match end (spec §6.4; 'void' is QA finding #2's simultaneous-double-disconnect no-contest outcome, never locally detected, only ever arrives via endMatchByResult)
+    // True only while it is the first player's very first turn of the match
+    // (spec §6.3.1/§7.1/§7.2, CEO 2026-08: "선공을 하는 플레이어는 첫 턴에는
+    // 공격을 못하게 해야겠다"). Set from isFirstPlayer in startMatch() and
+    // permanently cleared the first time THIS player's endTurn() runs — since
+    // a match only ever has one "first player's turn 1", clearing it
+    // unconditionally in endTurn() (rather than re-deriving "is this still
+    // turn 1" some other way) is sufficient: it starts false for the second
+    // player (never blocks them) and starts true for the first player but is
+    // gone by the time endTurn() hands the turn back over, so it can never
+    // reactivate on a later turn. Only `type: 'attack'` cards are gated by
+    // this — Skill/Power cards ignore it entirely (§6.3.1: they're all
+    // `target: 'self'`, so the "can deal damage before the opponent even
+    // acts" fairness concern doesn't apply to them).
+    firstTurnAttackLock: false,
     // How-to-play overlay (docs/design/onboarding.md): 'first' = shown once
     // automatically before the first battle; 'reopen' = opened via the ?
     // button mid-match and must return to whatever screen was behind it.
@@ -235,12 +249,21 @@ const AL = (() => {
     state.turnBusy = false;
     state.frozen = false;
     state.matchResult = null;
+    // spec §6.3.1/§6.3.2 (2026-08 revert): only meaningful when THIS client's
+    // player is the first player — see the field's own doc comment above.
+    state.firstTurnAttackLock = isFirstPlayer;
     handKeyCounter = 0;
 
-    // First-turn asymmetry (spec §6.3 step 3): first player draws 5, second
-    // player draws 6.
-    drawCards(state.player, isFirstPlayer ? 5 : 6);
-    drawCards(state.opponent, isFirstPlayer ? 6 : 5);
+    // Opening draw (spec §6.3 step 3, §7.1 — revert, 2026-08): both players
+    // draw 5. This used to be an asymmetric 5/6 split (second player drew an
+    // extra card to offset first-player tempo advantage), but §6.3.2's
+    // reasoning is that stacking that card-advantage boost on top of the new
+    // first-turn attack lock (below) risks over-correcting the OTHER way —
+    // see spec §6.3.2 for the full turn-order math. The asymmetric split is
+    // now flagged in the spec as the first lever to reintroduce if
+    // playtesting finds second-player win rate too low, not a permanent cut.
+    drawCards(state.player, 5);
+    drawCards(state.opponent, 5);
 
     // Show the "How to Play" overlay once, before the first battle
     // (docs/design/onboarding.md section 2). closeHowto() reveals the
@@ -273,7 +296,12 @@ const AL = (() => {
     const cardId = state.player.hand[handIndex];
     if (!cardId) return false;
     const card = cardById(cardId);
-    return state.turn === 'player' && !state.turnBusy && !state.frozen && state.player.mana >= card.cost;
+    if (state.turn !== 'player' || state.turnBusy || state.frozen) return false;
+    // First player's turn-1 attack lock (spec §6.3.1/§7.2) — same gate
+    // shape as the mana check below, reused rather than a new component per
+    // spec §7.2's explicit instruction.
+    if (state.firstTurnAttackLock && card.type === 'attack') return false;
+    return state.player.mana >= card.cost;
   }
 
   // True if at least one card left in hand is affordable right now. Used to
@@ -307,6 +335,11 @@ const AL = (() => {
     if (!cardId) return;
     const card = cardById(cardId);
     if (state.player.mana < card.cost) { emit(); return; }
+    // First player's turn-1 attack lock (spec §6.3.1) — real gate, not just
+    // the `unaffordable` visual state canPlay() drives in ui.js. Mirrors the
+    // mana check directly above (same "re-render so any transient selection
+    // highlight clears, then bail" shape).
+    if (state.firstTurnAttackLock && card.type === 'attack') { emit(); return; }
 
     if (state.selected === handIndex) {
       state.selected = null; // toggle off
@@ -335,6 +368,12 @@ const AL = (() => {
     const cardId = state.player.hand[handIndex];
     const card = cardById(cardId);
     if (!card || state.player.mana < card.cost) return;
+    // Defense in depth for the first player's turn-1 attack lock (spec
+    // §6.3.1): selectCard() above already refuses to reach this point for a
+    // gated attack card through the normal click path, but this is the
+    // function that actually spends mana/applies the effect, so it re-checks
+    // independently rather than trusting every caller to have gated first.
+    if (state.firstTurnAttackLock && card.type === 'attack') return;
 
     state.player.mana -= card.cost;
     state.player.hand.splice(handIndex, 1);
@@ -371,6 +410,13 @@ const AL = (() => {
     state.player.handKeys = [];
     state.turnBusy = true;
     state.turn = 'opponent';
+    // Turn-1 attack lock (spec §6.3.1) only ever applies to the first
+    // player's very first turn — once that turn ends (however it ends:
+    // manual End Turn, timeout via reconcileOpponentTurnStart(), or
+    // maybeAutoEndTurn()'s auto-end, all of which funnel through here),
+    // clear it permanently so it can never reactivate on a later turn. A
+    // harmless no-op if it was already false (every non-first-player turn).
+    state.firstTurnAttackLock = false;
     emit();
     // Tell the opponent's client our turn just ended (spec §7.2 strict
     // alternation) — js/battle.js relays this as an `action` message AND, if
@@ -683,12 +729,16 @@ const AL = (() => {
     state.turn = 'player';
     state.turnBusy = false;
     // QA finding #1's hand-count corruption (docs/qa/online-pvp-milestone.md:
-    // "hand grew from 6 to 11 cards"): the second player's OPENING hand
-    // (spec §6.3 step 3's "후공 6장 드로우") is dealt directly into
+    // "hand grew from 6 to 11 cards" -- from back when the opening draw was
+    // an asymmetric 5/6 split, since reverted to symmetric 5/5, spec §6.3.2):
+    // the second player's OPENING hand is dealt directly into
     // state.player.hand by startMatch() and IS their full turn-1 hand --
-    // spec §7.1's draw table is explicit the 6-card opening draw *replaces*
-    // the normal 5-per-turn draw for that one turn, it does not stack an
-    // additional draw on top. Every OTHER call of localTurnStart() always
+    // spec §7.1's draw table is explicit the opening draw *replaces* the
+    // normal 5-per-turn draw for that one turn, it does not stack an
+    // additional draw on top (this held for the old 6-card opening draw and
+    // holds identically for today's 5-card one -- the guard below only cares
+    // whether the hand is already populated, never the exact count). Every
+    // OTHER call of localTurnStart() always
     // finds state.player.hand already emptied by this same player's own
     // preceding endTurn() (which discards the full hand before the turn
     // passes) -- so "hand still has cards right now" uniquely identifies

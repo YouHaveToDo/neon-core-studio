@@ -234,6 +234,18 @@ const UI = (() => {
       node.dataset.index = i;
       node.classList.toggle('unaffordable', !affordable);
       node.classList.toggle('selected', state.selected === i);
+      // Turn-1 attack lock tooltip (spec §6.3.1's hover/long-press
+      // recommendation): unlike the mana-insufficient disabled state (whose
+      // reason is self-evident from the card's own cost badge), "why is this
+      // playable-cost Attack card greyed out on turn 1" is not obvious from
+      // the card alone, so it gets an explanatory native title/long-press
+      // tooltip. Only set for cards disabled specifically for THIS reason —
+      // set to '' (clears any stale title) whenever it doesn't apply,
+      // including once the lock itself is gone, so a reused node from a
+      // still-locked turn never keeps a stale tooltip.
+      const lockedThisTurn = !affordable && state.firstTurnAttackLock
+        && CARD_DEFS[cardId].type === 'attack';
+      node.title = lockedThisTurn ? '첫 턴에는 공격 카드를 낼 수 없습니다' : '';
       // appendChild on a node already in the DOM just relocates it — this
       // walks the whole hand in array order so the final DOM order always
       // matches state.player.hand, without ever detaching+recreating a node

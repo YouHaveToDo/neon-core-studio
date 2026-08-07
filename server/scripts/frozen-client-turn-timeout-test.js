@@ -262,8 +262,8 @@ async function scenario1FrozenClient() {
 
     const passiveHandBefore = await passivePage.evaluate(() => AL.state.player.hand.length);
     assert(
-      passiveHandBefore === 6,
-      `passive client's own hand is the untouched turn-1 opening draw, 6 cards, before anything happens (got ${passiveHandBefore})`
+      passiveHandBefore === 5,
+      `passive client's own hand is the untouched turn-1 opening draw, 5 cards, before anything happens (got ${passiveHandBefore})`
     );
     assert(
       (await passivePage.evaluate(() => AL.state.turn)) === 'opponent',
@@ -320,9 +320,10 @@ async function scenario1FrozenClient() {
         `passive client's turn flipped close to the server's ${TURN_TIMEOUT_MS}ms turn_timeout deadline, not at an arbitrary later point (flipped at +${observedFlipAtMs}ms)`
       );
       assert(
-        handAtFlip === 6,
-        `passive client's hand is STILL exactly 6 cards at the moment their turn starts -- no double-draw corruption ` +
-          `(QA's exact repro: hand grew 6 -> 11; got ${handAtFlip})`
+        handAtFlip === 5,
+        `passive client's hand is STILL exactly 5 cards at the moment their turn starts -- no double-draw corruption ` +
+          `(QA's original repro predates spec-online-pvp.md §6.3.2's 2026-08 revert to symmetric 5/5 opening draw, ` +
+          `when the second player's opening hand was 6 and the bug grew it 6 -> 11 -- same invariant, current count; got ${handAtFlip})`
       );
     }
 
@@ -396,8 +397,8 @@ async function scenario2HowToPlayLeftOpen() {
         `the match no longer silently stalls for BOTH sides just because one player is reading the tutorial slowly (got turn=${passiveTurnAfterWait})`
     );
     assert(
-      passiveHandAfterWait === 6,
-      `passive client's hand is still exactly 6 cards (their untouched turn-1 opening draw), no double-draw corruption (got ${passiveHandAfterWait})`
+      passiveHandAfterWait === 5,
+      `passive client's hand is still exactly 5 cards (their untouched turn-1 opening draw), no double-draw corruption (got ${passiveHandAfterWait})`
     );
 
     console.log('== active player FINALLY closes How-to-Play -- their own turn state must already reflect the timeout, not still show it as their turn ==');
