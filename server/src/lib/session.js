@@ -37,34 +37,74 @@ async function findAccountBySessionToken(token) {
   return result.rows[0] || null;
 }
 
-// SameSite: `onrender.com` is on the public suffix list (Render registers it
+// --- History of the cookie's SameSite setting, and why cookies are no longer
+// the production auth transport at all (kept here since this comment was the
+// prior session's record of the SameSite=None reasoning, and the next person
+// reading this file needs the full chain, not just the current end state):
+//
+// `onrender.com` is on the public suffix list (Render registers it
 // specifically so that different customers'/services' `*.onrender.com`
 // subdomains are treated as different sites, not as one shared domain) --
 // verified directly against https://publicsuffix.org/list/public_suffix_list.dat.
 // That means the client (neon-core-client.onrender.com) and this API
 // (neon-core-api.onrender.com) are cross-SITE in production, not just
-// cross-origin, even though they share the `onrender.com` suffix. `lax`
-// cookies are withheld from cross-site fetch/XHR/WS-upgrade requests (they
-// only ride along on top-level navigations), so `lax` would silently break
-// every credentialed request js/api.js/js/ws.js make in production -- this
-// only worked in local dev because two `localhost` ports count as same-site.
-// `none` is required for the cross-site case, and `none` requires `Secure`
-// (HTTPS-only), which is already tied to IS_PRODUCTION below, so this is
-// safe: production (always HTTPS on Render) gets `none`+Secure, dev (plain
-// http://) keeps `lax`, which still works fine there since dev is same-site.
+// cross-origin. A prior session correctly identified that `lax` cookies are
+// withheld from cross-site fetch/XHR/WS-upgrade requests and switched
+// production to `sameSite: 'none'` (+ `Secure`, required by `none`) to fix
+// that.
+//
+// That fix was spec-correct but didn't hold up on real devices: mobile
+// Safari and iOS in-app-browser WebViews apply Intelligent Tracking
+// Prevention (ITP), which classifies a cookie set by a cross-site
+// fetch/XHR *response* (exactly what login/signup's Set-Cookie is here) as
+// a third-party tracking cookie and blocks or aggressively evicts it --
+// regardless of `SameSite=None; Secure` being attribute-correct. That's the
+// literal bug reported: login succeeds (the response itself is fine), but
+// the cookie doesn't reliably survive to the very next request on iOS, so
+// the next authenticated call 401s with "session expired" seconds later.
+// No cookie attribute combination sidesteps ITP -- it's a deliberate
+// anti-tracking policy aimed at exactly this "cookie set by domain B while
+// browsing domain A" shape, not a bug to work around with more cookie flags.
+//
+// Fix: production now authenticates exclusively via `Authorization: Bearer
+// <token>` (see readSessionToken below), which the client stores in
+// localStorage and attaches itself on every request -- not an ambient
+// credential the browser attaches automatically, so ITP's cross-site-cookie
+// heuristics don't apply to it at all (see js/api.js's top comment for the
+// client-side half of this). Cookies are no longer set in production at
+// all -- see setSessionCookie's IS_PRODUCTION early-return below -- both
+// because they don't reliably work there anymore and because leaving a
+// broken-looking Set-Cookie header in place is misleading (it looks like
+// auth, but isn't the thing actually being relied on). They're kept for
+// local dev only, purely so server/scripts/*-smoke-test.js (which drive the
+// API directly with `Cookie` headers, no browser/localStorage involved) and
+// manual curl-style testing keep working unmodified -- dev's two `localhost`
+// ports are same-site, so `lax` cookies round-trip there with no ITP
+// involved (ITP is a real-Safari-only policy, irrelevant to local dev).
 function setSessionCookie(res, token, expiresAt) {
+  if (IS_PRODUCTION) return; // production auth is Authorization: Bearer only, see above
   res.setHeader(
     'Set-Cookie',
     cookie.serialize(SESSION_COOKIE_NAME, token, {
       httpOnly: true,
-      secure: IS_PRODUCTION, // Secure requires HTTPS; local dev runs plain http://
-      sameSite: IS_PRODUCTION ? 'none' : 'lax',
+      secure: false, // local dev only ever runs plain http://
+      sameSite: 'lax', // fine for same-site localhost:<port> <-> localhost:<port>
       path: '/',
       expires: expiresAt,
     })
   );
 }
 
+// Unlike setSessionCookie, this always runs (not gated on IS_PRODUCTION):
+// production stopped SETTING new cookies with this deploy, but any account
+// that logged in before this deploy may still be carrying a leftover
+// `SameSite=None; Secure` cookie from the old code, and a stale session
+// cookie with no client relying on it is still a session token that could
+// in principle be replayed -- clearing it on logout is cheap and correct
+// regardless of which era set it. Uses the OLD (pre-this-fix) attribute
+// values (secure/sameSite tied to IS_PRODUCTION) since a Set-Cookie must
+// match Path (and, for the browser to treat it as "the same cookie" worth
+// overwriting) reasonably closely to what actually got stored.
 function clearSessionCookie(res) {
   res.setHeader(
     'Set-Cookie',
@@ -85,6 +125,28 @@ function readSessionCookie(req) {
   return parsed[SESSION_COOKIE_NAME] || null;
 }
 
+const AUTH_HEADER_PREFIX = 'Bearer ';
+
+function readBearerToken(req) {
+  const header = req.headers.authorization;
+  if (typeof header !== 'string' || !header.startsWith(AUTH_HEADER_PREFIX)) return null;
+  const token = header.slice(AUTH_HEADER_PREFIX.length).trim();
+  return token || null;
+}
+
+// The authoritative token lookup for HTTP requests (server/src/middleware/
+// requireAuth.js, and auth.js's own /logout): `Authorization: Bearer <token>`
+// first (the only thing production clients send, per the ITP fix above),
+// falling back to the session cookie only because dev keeps setting one (see
+// setSessionCookie) and server/scripts/*-smoke-test.js still authenticate
+// via `Cookie` headers directly. A request carrying both would prefer the
+// header, which is never actually possible from js/api.js today (it only
+// ever sends one or the other depending on environment) -- ordering is just
+// "trust the mechanism that's actually the production one first."
+function readSessionToken(req) {
+  return readBearerToken(req) || readSessionCookie(req);
+}
+
 module.exports = {
   createSession,
   destroySession,
@@ -92,4 +154,5 @@ module.exports = {
   setSessionCookie,
   clearSessionCookie,
   readSessionCookie,
+  readSessionToken,
 };

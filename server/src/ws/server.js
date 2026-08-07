@@ -7,15 +7,25 @@
  * its own at all, see render.yaml -- this comment is only about the API
  * service's internal HTTP+WS port sharing.)
  *
- * Auth (2.3): the session token lives in an HttpOnly cookie (set by the
- * Phase 1 /api/auth endpoints), which the browser automatically attaches to
- * the WS upgrade request same-origin -- so that's the only place the token
- * is available to read, and where we validate it. A client can't read or
- * forge it into a message payload (HttpOnly), which is exactly what
- * prevents self-declaring a display name: the display name attached to
- * every message this connection sends is resolved server-side from the
- * validated session, once, at connection time, and never taken from client
- * input afterward.
+ * Auth (2.3, revised for the mobile-ITP fix -- see lib/session.js's
+ * setSessionCookie comment for the full history): production auth moved off
+ * cookies entirely (mobile Safari/iOS in-app-browser ITP unreliably evicts a
+ * cookie set by a cross-site response, which is what the client and this API
+ * are on Render). Browser WebSocket connections can't set custom headers at
+ * handshake time, so `Authorization: Bearer` (the HTTP auth path, see
+ * middleware/requireAuth.js) isn't available here -- the token instead rides
+ * as a `?token=` query-string param on the `/ws` upgrade URL (js/ws.js sets
+ * it from the same localStorage value js/api.js uses for the header). This
+ * keeps the existing "auth resolved once, at connection time, before any
+ * room-join message is processed" shape intact (see readWsToken below) --
+ * ws.accountId/ws.displayName are still set synchronously in the 'connection'
+ * handler, no separate post-open auth-message handshake needed. A client
+ * still can't forge a display name into a message payload: it's resolved
+ * server-side from the validated session at connection time and never taken
+ * from client input afterward, same as before. The old HttpOnly session
+ * cookie is still accepted as a fallback here too, purely because dev still
+ * sets one and server/scripts/*-smoke-test.js's Node `ws` client still
+ * authenticates via a `Cookie` header -- see readWsToken.
  *
  * Heartbeat (closes a gap flagged by the earlier session): a hard network
  * drop (wifi cut, laptop closed) doesn't always fire a clean WS close frame
@@ -31,6 +41,7 @@
 
 const { WebSocketServer } = require('ws');
 const { readSessionCookie, findAccountBySessionToken } = require('../lib/session');
+const { URL } = require('url');
 const { recordMatchResult, recordVoidMatch } = require('../lib/matchHistory');
 const rooms = require('./rooms');
 const { TYPE, errorMessage, sendJson } = require('./protocol');
@@ -45,22 +56,53 @@ const {
 
 const WS_PATH = '/ws';
 
-// Now that the session cookie is SameSite=None in production (required for
-// the client/API cross-site onrender.com topology -- see lib/session.js),
-// the browser will attach it to a WS upgrade request no matter which site
-// initiated the connection, not just this project's own client. SameSite=Lax
-// used to be an implicit CSRF guard for the upgrade handshake; None gives
-// that up, so the Origin header (which the ws upgrade request, like any
-// browser-initiated request, always carries and which JS cannot spoof) is
-// checked explicitly here instead -- same allowlist app.js's CORS config
-// already uses for HTTP, so there's one source of truth (CLIENT_ORIGIN) for
-// "which origins may use this account's session," not two divergent ones.
-// Matches app.js's dev behavior too: unset/non-production allows any origin,
-// since local dev has no fixed client port.
+// Origin allowlist -- re-examined for the move off cookies (see the top-of-
+// file comment). This check was originally added as a CSRF guard: with
+// SameSite=None, a browser attaches the session cookie to a WS upgrade
+// request no matter which site's page initiated the connection, so a
+// malicious cross-site page's `new WebSocket(...)` could ride on a logged-in
+// victim's ambient cookie -- the Origin header (browser-set, JS can't spoof
+// it) closed that gap.
+//
+// Production no longer sets that cookie at all (see lib/session.js), and the
+// new primary credential -- the token in `?token=` -- is NOT ambient: a
+// cross-site attacker page has no way to read a value the client stored in
+// its own localStorage (ordinary same-origin storage isolation), so it has
+// nothing to attach even if it tried. That means the original CSRF scenario
+// this check existed for no longer applies to the production auth path. It's
+// kept anyway as cheap, unrelated defense-in-depth -- restricting which
+// origins may open a relay socket at all, mirroring the same CLIENT_ORIGIN
+// allowlist app.js's CORS config already enforces for the HTTP API, one
+// source of truth either way -- and it still matters for the dev-only cookie
+// fallback (readWsToken below), where the ambient-credential concern is
+// still technically real, it's just that dev's `isAllowedOrigin` short-
+// circuits to `true` unconditionally anyway (no fixed client port locally).
 function isAllowedOrigin(origin) {
   if (!IS_PRODUCTION) return true;
   if (!origin || !CLIENT_ORIGIN) return false;
   return CLIENT_ORIGIN.split(',').map((s) => s.trim()).includes(origin);
+}
+
+// Token lookup for the WS upgrade request. `?token=` query param first (the
+// only thing production clients send -- see js/ws.js), falling back to the
+// session cookie for local dev / server/scripts/*-smoke-test.js's Node `ws`
+// client, which sets a `Cookie` header directly (no browser, no
+// localStorage, no query param involved). A bearer token in a URL query
+// string is a known trade-off (it can end up in access/proxy logs in a way
+// a header wouldn't) -- accepted here because browser WebSocket connections
+// cannot set custom headers at handshake time, this is a revocable opaque
+// token (not a password, and `POST /api/auth/logout` deletes the row
+// server-side), and the connection itself is wss:// (TLS) in production so
+// it isn't visible on the wire.
+function readWsToken(req) {
+  try {
+    const { searchParams } = new URL(req.url, 'http://internal'); // base required for a relative req.url
+    const queryToken = searchParams.get('token');
+    if (queryToken) return queryToken;
+  } catch {
+    // malformed URL -- fall through to the cookie fallback below
+  }
+  return readSessionCookie(req);
 }
 
 function attachWebSocketServer(httpServer) {
@@ -80,7 +122,7 @@ function attachWebSocketServer(httpServer) {
     }
 
     try {
-      const token = readSessionCookie(req);
+      const token = readWsToken(req);
       const account = await findAccountBySessionToken(token);
       if (!account) {
         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');

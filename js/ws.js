@@ -4,18 +4,24 @@
  * consumer this session; js/state.js's applyRemoteAction() seam is wired to
  * this transport in a later phase (4.7), not here.
  *
- * Auth: server/src/ws/server.js validates the session cookie at the WS
- * upgrade request itself (server/src/ws/server.js's `httpServer.on('upgrade'
- * , ...)` handler reads the same HttpOnly cookie js/api.js's fetch calls
- * already rely on via `credentials: 'include'`). A `new WebSocket(url)` in a
- * browser automatically attaches cookies that are valid for the target
- * origin to the upgrade request -- there is no way to (and no need to)
- * attach the cookie manually from JS here, unlike server/scripts/*-smoke-
- * test.js's Node `ws` client, which has no browser cookie jar and has to set
- * a `Cookie` header itself. If the session is missing/expired, the server
- * responds with a bare "401 Unauthorized" HTTP response instead of
- * completing the WS handshake, which surfaces here as the socket's `error`/
- * `close` event -- connect() below rejects in that case.
+ * Auth (revised -- see js/api.js's top comment and server/src/lib/
+ * session.js's setSessionCookie comment for the full mobile-ITP history):
+ * this used to rely on the browser automatically attaching the HttpOnly
+ * session cookie to the WS upgrade request. Production no longer sets that
+ * cookie at all (mobile Safari/iOS in-app-browser ITP unreliably evicts it),
+ * and even where it's still set (local dev), a WebSocket upgrade can't
+ * carry a custom `Authorization` header the way js/api.js's fetch calls
+ * can -- there's no browser API for that. So the same token js/api.js
+ * stores in localStorage after login/signup is instead appended as a
+ * `?token=` query-string param on the `/ws` connection URL (see wsUrl()
+ * below); server/src/ws/server.js's upgrade handler reads it from there.
+ * server/scripts/*-smoke-test.js's Node `ws` client has no browser cookie
+ * jar or localStorage either and continues to set a `Cookie` header itself
+ * (the server accepts that as a fallback -- see readWsToken there). If the
+ * session/token is missing/invalid, the server responds with a bare "401
+ * Unauthorized" HTTP response instead of completing the WS handshake, which
+ * surfaces here as the socket's `error`/`close` event -- connect() below
+ * rejects in that case.
  */
 const Net = (() => {
   let ws = null;
@@ -31,7 +37,14 @@ const Net = (() => {
     // production even though the WS relay's origin is NOT the client's own
     // origin there (client and API are separate Render services) -- it only
     // needs to match the API's origin, which is exactly what API_BASE_URL is.
-    return API_BASE_URL.replace(/^http/, 'ws') + '/ws';
+    const base = API_BASE_URL.replace(/^http/, 'ws') + '/ws';
+    // See the file's top comment: the token travels as a query param since
+    // a WS handshake can't carry a custom Authorization header. Omitted
+    // entirely if there's no stored token (e.g. dev, where the server also
+    // still accepts the session cookie the browser attaches automatically)
+    // rather than sending a literal "?token=null".
+    const token = API.getToken();
+    return token ? `${base}?token=${encodeURIComponent(token)}` : base;
   }
 
   function isConnected() {

@@ -7,7 +7,7 @@ const {
   destroySession,
   setSessionCookie,
   clearSessionCookie,
-  readSessionCookie,
+  readSessionToken,
   findAccountBySessionToken,
 } = require('../lib/session');
 const { STARTER_DECK_SLOT1, STARTER_DECK_NAME } = require('../lib/starterDeck');
@@ -70,12 +70,21 @@ router.post('/signup', async (req, res) => {
 
     await client.query('COMMIT');
 
-    // Auto-login on signup success (spec §4.1).
+    // Auto-login on signup success (spec §4.1). `token` is returned in the
+    // JSON body -- the primary/authoritative auth path now (see
+    // lib/session.js's setSessionCookie comment for why: mobile Safari/iOS
+    // in-app-browser ITP unreliably evicts a cross-site cookie set here, so
+    // js/api.js stores this token in localStorage and sends it back itself
+    // as `Authorization: Bearer <token>` on every subsequent request instead
+    // of relying on the browser to round-trip a cookie automatically).
+    // setSessionCookie is still called for local-dev/smoke-test convenience
+    // but is a no-op in production (see that function).
     const { token, expiresAt } = await createSession(account.id);
     setSessionCookie(res, token, expiresAt);
 
     return res.status(201).json({
       account: { id: account.id, email: account.email, displayName: account.display_name },
+      token,
     });
   } catch (err) {
     await client.query('ROLLBACK');
@@ -119,19 +128,25 @@ router.post('/login', async (req, res) => {
     return res.status(401).json(GENERIC_ERROR);
   }
 
+  // See the signup handler's comment above -- `token` in the response body
+  // is the primary auth path now, setSessionCookie is dev-only.
   const { token, expiresAt } = await createSession(account.id);
   setSessionCookie(res, token, expiresAt);
 
   return res.json({
     account: { id: account.id, email: account.email, displayName: account.display_name },
+    token,
   });
 });
 
 // POST /api/auth/logout
 // spec §4.2: immediate, no confirmation. Deletes the session row server-
 // side (the whole point of opaque tokens over JWT) and clears the cookie.
+// readSessionToken (Authorization header first, cookie fallback) so this
+// works whether the caller is a production client (header only) or a dev/
+// smoke-test caller (cookie).
 router.post('/logout', async (req, res) => {
-  const token = readSessionCookie(req);
+  const token = readSessionToken(req);
   if (token) {
     await destroySession(token);
   }
