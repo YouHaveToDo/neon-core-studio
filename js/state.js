@@ -175,6 +175,26 @@ const AL = (() => {
   function onMatchEnd(fn) { matchEndListeners.push(fn); }
   function emitMatchEnd(result) { matchEndListeners.forEach((f) => f(result)); }
 
+  // ---- Local-turn-end network seam (production bug fix, 2026-08) ------------
+  // Separate from emitAction('endTurn') above on purpose. emitAction('endTurn')
+  // fires unconditionally from every endTurn() call (js/battle.js relays it as
+  // an opaque peer `action` so the OPPONENT's mirrored state.opponent stays in
+  // sync, regardless of why the turn ended) — but the relay's own 24s
+  // turn-timer clock (spec §7.3) is a SEPARATE piece of server state that only
+  // needs a dedicated `end_turn` message for turn-ends the server doesn't
+  // already know about. Two of endTurn()'s four callers are cases the server
+  // is already aware of (a timeout it fired itself, or this client
+  // reconciling to a turn_started broadcast the server already sent) — a
+  // second end_turn for those would just bounce off the relay as
+  // NOT_YOUR_TURN. This bus exists so endTurn()'s `notifyServer` flag (see its
+  // doc comment) can tell js/battle.js exactly which turn-ends actually need
+  // that dedicated message, instead of js/battle.js guessing from the call
+  // site or (the pre-fix bug) only ever wiring it up at the manual End Turn
+  // click and silently missing maybeAutoEndTurn()'s auto-end path.
+  const localTurnEndListeners = [];
+  function onLocalTurnEnd(fn) { localTurnEndListeners.push(fn); }
+  function emitLocalTurnEnd() { localTurnEndListeners.forEach((f) => f()); }
+
   function sideOf(sideState) { return sideState === state.player ? 'player' : 'opponent'; }
 
   // Real, local-only shuffle. Only ever called on state.player's own pile —
@@ -426,7 +446,16 @@ const AL = (() => {
     maybeAutoEndTurn();
   }
 
-  function endTurn() {
+  // notifyServer (default true): whether this turn-end needs the dedicated
+  // `end_turn` relay message (see emitLocalTurnEnd()'s doc comment just
+  // above). True for the two callers the server does NOT already know ended
+  // this turn — a manual End Turn click (js/battle.js's onManualEndTurnClick)
+  // and maybeAutoEndTurn()'s auto-end below, both left at the default. Passed
+  // false by the two callers reconciling to something the server already told
+  // this client — reconcileOpponentTurnStart() (below) and js/battle.js's
+  // handleTurnTimeout() — since the server's own clock already moved on by
+  // itself in both those cases.
+  function endTurn(notifyServer = true) {
     if (state.turnBusy || state.turn !== 'player' || state.frozen) return;
     state.selected = null;
     // Weaken decay (docs/design/card-shop-currency-proposal.md §3, fixed per
@@ -458,12 +487,15 @@ const AL = (() => {
     state.firstTurnAttackLock = false;
     emit();
     // Tell the opponent's client our turn just ended (spec §7.2 strict
-    // alternation) — js/battle.js relays this as an `action` message AND, if
-    // this was a manual click (not a server-fired timeout, which already
-    // advanced the server's own turn clock), also sends `end_turn` to the
-    // relay so the server's 24s clock hands off to the opponent. See
-    // js/battle.js for exactly which callers do which.
+    // alternation) — js/battle.js relays this as an `action` message so the
+    // opponent's mirrored state.opponent stays in sync, regardless of why
+    // this turn ended.
     emitAction('endTurn');
+    // Separately (see notifyServer's doc comment above and
+    // emitLocalTurnEnd()'s doc comment near onMatchEnd), tell the relay's own
+    // 24s turn-timer clock to hand off to the opponent — but only for the
+    // turn-ends the server doesn't already know about.
+    if (notifyServer) emitLocalTurnEnd();
     // Nothing here drives the opponent's turn forward on THIS client — that
     // is a mirrored effect of the OTHER client applying our 'endTurn' action
     // via applyRemoteAction() below, and vice versa when they end theirs.
@@ -905,12 +937,13 @@ const AL = (() => {
   // unresolved selection with no mana spent, discard my hand, pass the
   // turn -- spec §7.3) WITHOUT sending another end_turn to the server: it
   // already advanced its own clock when it decided my turn was over, so a
-  // second end_turn from me would just bounce off as NOT_YOUR_TURN (see
-  // endTurn()'s emitAction, which only ever notifies the OPPONENT's client,
-  // never the relay's own turn clock).
+  // second end_turn from me would just bounce off as NOT_YOUR_TURN — passes
+  // notifyServer=false (see endTurn()'s doc comment) so emitLocalTurnEnd()
+  // does not fire for this call; emitAction('endTurn') still fires as normal
+  // to keep the opponent's mirrored state in sync.
   function reconcileOpponentTurnStart() {
     if (state.turn !== 'player') return; // already advanced -- nothing to reconcile
-    endTurn();
+    endTurn(false);
   }
 
   // Local player's turn starting again after the opponent ends theirs
@@ -1033,6 +1066,7 @@ const AL = (() => {
     onFx,
     onAction,
     onMatchEnd,
+    onLocalTurnEnd,
     startMatch,
     openHowto,
     closeHowto,

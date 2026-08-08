@@ -21,9 +21,12 @@
  *      already implements for a manual End Turn click.
  *
  * Turn-boundary bookkeeping (why both an `action` AND a server `end_turn`
- * message go out for a manual End Turn, but only the `action` goes out for a
- * server-forced timeout): see onManualEndTurnClick()/handleTurnTimeout()
- * below.
+ * message go out for a manual End Turn or an auto-ended turn, but only the
+ * `action` goes out for a server-forced timeout or this client reconciling to
+ * a turn_started broadcast it already received): js/state.js's endTurn()
+ * takes a `notifyServer` flag and fires AL.onLocalTurnEnd() only when it's
+ * true; see onLocalTurnEndNotify()/onManualEndTurnClick()/handleTurnTimeout()
+ * below for which of endTurn()'s 4 callers pass which.
  *
  * Match end (4.8, spec §6.4): AL.onMatchEnd() fires only when THIS client
  * locally detects HP reaching 0 (spec's "즉시 판정" rule) — that's the
@@ -144,19 +147,36 @@ const Battle = (() => {
     Net.send('report_result', { result });
   }
 
-  // Manual "End Turn" click. Sends BOTH the peer-to-peer `action` (via
-  // AL.endTurn() -> onLocalAction above, so the opponent's state.opponent
-  // mirrors the discard/turn-pass) AND the dedicated server `end_turn`
-  // message, which is what actually hands the 24s clock to the opponent
-  // server-side (protocol.js: "the dedicated turn-boundary signal ... instead
-  // of opaque `action` inspection"). Contrast with handleTurnTimeout() below,
-  // which must NOT send end_turn -- the server already advanced the turn
-  // itself when it fired turn_timeout, so a second end_turn here would just
-  // bounce off as NOT_YOUR_TURN.
+  // Manual "End Turn" click. AL.endTurn() (defaulting notifyServer=true, see
+  // its doc comment in js/state.js) sends BOTH the peer-to-peer `action` (via
+  // onLocalAction above, so the opponent's state.opponent mirrors the
+  // discard/turn-pass) AND fires AL.onLocalTurnEnd() -> onLocalTurnEndNotify()
+  // below, which is what actually hands the 24s clock to the opponent
+  // server-side via the dedicated `end_turn` relay message (protocol.js: "the
+  // dedicated turn-boundary signal ... instead of opaque `action`
+  // inspection"). Contrast with handleTurnTimeout() below, which explicitly
+  // passes notifyServer=false -- the server already advanced the turn itself
+  // when it fired turn_timeout, so a second end_turn here would just bounce
+  // off as NOT_YOUR_TURN. maybeAutoEndTurn() (js/state.js) is the third
+  // caller and, like this one, leaves notifyServer at its default true --
+  // this is also the fix for the production bug where an auto-ended turn
+  // flipped the client-side turn label instantly but left the server's own
+  // timer counting down from the stale previous deadline until it separately
+  // timed out on its own.
   function onManualEndTurnClick() {
     if (AL.state.turn !== 'player' || AL.state.turnBusy || AL.state.frozen) return;
     AL.endTurn();
-    if (Net.isConnected()) Net.send('end_turn');
+  }
+
+  // AL.onLocalTurnEnd() fires exactly for the turn-ends the server doesn't
+  // already know about (manual click, maybeAutoEndTurn()'s auto-end) -- see
+  // js/state.js's emitLocalTurnEnd()/endTurn() doc comments. This is the
+  // single call site for the dedicated `end_turn` relay message; onLocalAction
+  // above (wired to AL.onAction) stays responsible for the separate opaque
+  // peer `action` message on every turn-end regardless of cause.
+  function onLocalTurnEndNotify() {
+    if (!started || !Net.isConnected()) return;
+    Net.send('end_turn');
   }
 
   function onClaimForfeitClick() {
@@ -241,7 +261,7 @@ const Battle = (() => {
   function handleTurnTimeout(msg) {
     if (!started || msg.accountId !== myAccountId) return;
     if (AL.state.turn !== 'player' || AL.state.frozen) return; // defensive -- shouldn't happen if the server and this client agree on whose turn it is
-    AL.endTurn();
+    AL.endTurn(false); // notifyServer=false -- the server already advanced its own clock to fire this timeout, see js/state.js's endTurn() doc comment
   }
 
   function handleOpponentDisconnected(msg) {
@@ -355,6 +375,7 @@ const Battle = (() => {
 
     AL.onAction(onLocalAction);
     AL.onMatchEnd(onLocalMatchEnd);
+    AL.onLocalTurnEnd(onLocalTurnEndNotify);
     // Flush any action buffered by handleAction() the instant this client's
     // own screen reaches 'battle' -- see pendingActions' doc comment. Runs on
     // every state change (cheap: just a length check in the common case),
