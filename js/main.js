@@ -19,8 +19,10 @@ const App = (() => {
 
   function cache() {
     el.menuDisplayName = document.getElementById('main-menu-display-name');
+    el.menuInkAmount = document.getElementById('main-menu-ink-amount');
     el.btnLogout = document.getElementById('btn-logout');
     el.btnMenuDeck = document.getElementById('btn-menu-deck');
+    el.btnMenuShop = document.getElementById('btn-menu-shop');
     el.btnMenuHistory = document.getElementById('btn-menu-history');
     el.btnMenuPlay = document.getElementById('btn-menu-play');
     el.playGateHint = document.getElementById('play-gate-hint');
@@ -46,19 +48,37 @@ const App = (() => {
     }
   }
 
+  // docs/design/card-shop-currency-proposal.md §5/§7: main-menu Ink display,
+  // refreshed on the same "every time the main menu is (re)shown" schedule
+  // as refreshPlayGate() above -- a match's Ink award or a shop pull can
+  // both change this while the player was on a different screen, so it must
+  // re-fetch on return, not just once right after login.
+  async function refreshInkBalance() {
+    try {
+      const data = await API.economy.get();
+      el.menuInkAmount.textContent = String(data.inkBalance);
+    } catch (err) {
+      // Network/session hiccup -- leave whatever was last shown rather than
+      // blocking the menu over a non-critical display value.
+    }
+  }
+
   function showMainMenu(acct) {
     account = acct;
     el.menuDisplayName.textContent = acct.displayName;
     Screens.show('screen-main-menu');
     refreshPlayGate();
+    refreshInkBalance();
   }
 
   // Shared re-entry point for every "메인 메뉴로 돌아가기" action elsewhere in
-  // the app (deck management's 뒤로, match flow's 뒤로) so the play-gate
-  // check above always reruns rather than only firing right after login.
+  // the app (deck management's 뒤로, match flow's 뒤로, shop's 뒤로) so the
+  // play-gate check + Ink balance above always rerun rather than only firing
+  // right after login.
   function returnToMainMenu() {
     Screens.show('screen-main-menu');
     refreshPlayGate();
+    refreshInkBalance();
   }
 
   async function handleLogout() {
@@ -120,6 +140,9 @@ const App = (() => {
     Match.init();
     el.btnLogout.addEventListener('click', handleLogout);
     el.btnMenuDeck.addEventListener('click', () => Deck.showSlots());
+    // 상점 (docs/design/card-shop-currency-proposal.md §6-§7, Phase 6/7) is
+    // now real: js/shop.js.
+    el.btnMenuShop.addEventListener('click', () => Shop.show());
     // 플레이 (plan.md 4.4-4.6, spec §6.1-§6.3) is now real: deck-select ->
     // lobby -> match start, js/match.js. Disabled state + hint text is
     // driven by refreshPlayGate() above, not a static "곧 제공" stub anymore.
@@ -138,6 +161,7 @@ document.addEventListener('DOMContentLoaded', () => {
   UI.init();
   Deck.init();
   History.init();
+  Shop.init();
   Battle.init();
   App.init();
 

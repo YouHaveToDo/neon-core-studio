@@ -138,9 +138,16 @@ const API = {
     // -> { inkBalance: number, expansionCards: {cardId: count} } (server/src/
     // routes/economy.js, Phase 2 of docs/design/card-shop-currency-
     // proposal.md). Used by js/deck.js's pool-grid rendering (Phase 3, §7) to
-    // know which expansion cards are locked/owned/owned-and-maxed -- no
-    // currency display anywhere else yet (that's later UI scope).
+    // know which expansion cards are locked/owned/owned-and-maxed, and by
+    // js/main.js's main-menu Ink display + js/shop.js's shop screen
+    // (Phase 6/7).
     get: () => apiRequest('/api/economy'),
+    // POST /api/economy/pull (server/src/routes/economy.js, Phase 4/6) --
+    // spends 50 Ink for one bag-drawn expansion card.
+    // -> 200 { cardId, inkBalance, expansionCards }
+    // -> 400 { error: 'insufficient_ink', message, inkBalance } (ApiError)
+    // -> 409 { error: 'collection_complete', message, expansionCards } (ApiError)
+    pull: () => apiRequest('/api/economy/pull', { method: 'POST' }),
   },
   rooms: {
     // -> { rooms: [ {id, hostDisplayName, createdAt: <ms epoch>}, ... ] }

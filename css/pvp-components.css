@@ -380,3 +380,68 @@
 .result-chip.void { background: rgba(184, 169, 154, 0.14); color: var(--ink-dim); border: 1px solid rgba(184, 169, 154, 0.4); }
 .result-chip .forfeit-tag { font-weight: 400; color: var(--ink-faint); margin-left: 3px; }
 .history-empty { text-align: center; padding: 40px 20px; color: var(--ink-faint); font-size: 13px; }
+
+/* ============================================ 6.x shop / gacha (new screen)
+   Lifted verbatim from assets/mockups/pvp-components.css's "6.x shop /
+   gacha" section (docs/design/card-shop-currency-proposal.md §6-§7,
+   art-direction.md §9) -- see that file for the full design rationale
+   (ink-balance gold-accent judgment call, single-flip-only animation budget
+   per §6.3's explicit "no slot-machine choreography" scope, progress strip
+   reusing .pool-card-wrap/.pool-count-badge/.pool-lock-badge verbatim so the
+   shop and deck editor show identical tiles). */
+
+.shop-shell { background: var(--bg-raised); border: 1px solid var(--line); border-radius: 14px; padding: 24px; max-width: 560px; }
+.shop-topbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 22px; }
+.shop-topbar h2 { margin: 0; text-align: left; }
+
+.ink-balance { display: flex; align-items: center; gap: 8px; background: var(--bg-inset); border: 1px solid rgba(212, 175, 55, 0.35); border-radius: 20px; padding: 7px 14px 7px 10px; }
+.ink-balance .icon-ink { width: 18px; height: 18px; color: var(--gold); filter: drop-shadow(0 0 4px rgba(212, 175, 55, 0.45)); }
+.ink-balance .ink-amount { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 16px; font-weight: bold; color: var(--gold); }
+.ink-balance .ink-label { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-faint); margin-left: -2px; }
+
+.shop-pull-section { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 26px 20px; background: var(--bg-inset); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 22px; }
+
+.shop-reveal-stage { width: 165px; height: 230px; perspective: 900px; }
+.reveal-card-inner { position: relative; width: 100%; height: 100%; transition: transform 0.5s cubic-bezier(0.4, 0.15, 0.2, 1); transform-style: preserve-3d; }
+.shop-reveal-stage.revealed .reveal-card-inner { transform: rotateY(180deg); }
+@media (prefers-reduced-motion: reduce) { .reveal-card-inner { transition: none; } }
+.reveal-face { position: absolute; inset: 0; backface-visibility: hidden; display: flex; align-items: center; justify-content: center; }
+.reveal-face .card-back-icon, .reveal-face .card { width: 100%; height: 100%; }
+.reveal-face-front { transform: rotateY(180deg); }
+.reveal-face-front .card { transform: scale(1.25); transform-origin: center; position: static; }
+
+.shop-reveal-caption { text-align: center; min-height: 34px; }
+.shop-reveal-caption .caption-title { font-family: var(--font-serif); font-size: 15px; color: var(--ink); margin: 0 0 2px; }
+.shop-reveal-caption .caption-sub { font-size: 11.5px; color: var(--ink-faint); margin: 0; }
+
+.btn-pull { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 13px 36px; font-size: 14px; }
+.btn-pull .pull-cost { display: flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 400; opacity: 0.85; }
+.btn-pull .pull-cost .icon-ink { width: 12px; height: 12px; }
+.btn-pull:disabled { opacity: 0.4; cursor: default; }
+.btn-pull:disabled:hover { border-color: var(--line); }
+
+.shop-complete-banner { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; padding: 22px 20px; background: rgba(212, 175, 55, 0.08); border: 1px solid rgba(212, 175, 55, 0.4); border-radius: 12px; }
+.shop-complete-banner .icon-check { width: 30px; height: 30px; color: var(--gold); }
+.shop-complete-banner h3 { font-family: var(--font-serif); font-size: 16px; color: var(--gold); margin: 0; }
+.shop-complete-banner p { font-size: 12.5px; color: var(--ink-dim); margin: 0; }
+
+.shop-progress-label { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-faint); margin: 0 0 12px; display: flex; align-items: center; gap: 8px; }
+.shop-progress-label::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.shop-progress .pool-grid { grid-template-columns: repeat(auto-fill, 92px); gap: 14px 10px; }
+.shop-progress .pool-card-wrap { width: 92px; height: 129px; }
+.shop-progress .pool-card-wrap .card { transform: scale(0.697); }
+.shop-progress .pool-card-wrap .card:hover { transform: scale(0.697) translateY(-6px); }
+.shop-progress .pool-card-wrap.maxed .card:hover, .shop-progress .pool-card-wrap.locked .card:hover { transform: scale(0.697); }
+
+/* ======================================== programmer additions (6.x shop)
+   Not present in the mockup review file (which only ever shows one reviewed
+   fragment at a time, no back-navigation chrome) -- wiring the mockup's
+   markup into index.html's real .screen system, same pattern as every other
+   "programmer additions" block in this file. Main-menu Ink chip (§5, Phase
+   7) reuses .ink-balance verbatim inside .main-menu-account -- no extra
+   rule needed beyond making sure it doesn't force a line wrap alongside the
+   display name / logout button at the panel's fixed width. */
+.main-menu-account { flex-wrap: wrap; row-gap: 8px; }
+.main-menu-account .ink-balance { padding: 5px 12px 5px 8px; }
+.main-menu-account .ink-balance .icon-ink { width: 15px; height: 15px; }
+.main-menu-account .ink-balance .ink-amount { font-size: 13px; }

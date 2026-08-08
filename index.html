@@ -57,6 +57,19 @@
     <line x1="12" y1="9.5" x2="12" y2="14.5" />
     <circle cx="12" cy="17.3" r="0.9" fill="currentColor" stroke="none" />
   </symbol>
+  <!-- Shop / currency additions (docs/design/card-shop-currency-proposal.md
+       §5-§6, Phase 6/7), lifted verbatim from assets/icons.svg -- see that
+       file for the full design rationale (inkwell+quill silhouette,
+       deliberately distinct from icon-mana). -->
+  <symbol id="icon-ink" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M8 9H16V16A4 4 0 0 1 8 16V9Z" />
+    <path d="M10.3 9V6.6C10.3 5.7 11 5 11.9 5H12.1C13 5 13.7 5.7 13.7 6.6V9" />
+    <path d="M18.5 2.5L11.5 9.5" />
+    <path d="M17 2.7L18.5 2.5L18.3 4" />
+  </symbol>
+  <symbol id="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M5 12.5L9.5 17L19 6" />
+  </symbol>
   <!-- Lobby room-list additions (spec-online-pvp.md §6.2), lifted verbatim
        from assets/icons.svg / assets/mockups/screen-lobby.html's inline
        sprite -- manual refresh button (§6.2.3) and the room-row hover
@@ -254,6 +267,18 @@
       <p class="subtitle">오컬트 장부 온라인 1:1 대전</p>
       <div class="main-menu-account">
         <span id="main-menu-display-name" class="main-menu-name"></span>
+        <!-- Ink balance (docs/design/card-shop-currency-proposal.md §5,
+             Phase 7): reuses the shop screen's .ink-balance chip verbatim so
+             the same currency reads identically wherever it appears.
+             Refreshed via App.refreshInkBalance() every time the main menu
+             is (re)shown, same "re-evaluate on return" pattern
+             refreshPlayGate() already established (a match's Ink award or a
+             shop pull elsewhere can change this while the player is away). -->
+        <div class="ink-balance">
+          <svg class="icon-ink"><use href="#icon-ink"></use></svg>
+          <span id="main-menu-ink-amount" class="ink-amount">0</span>
+          <span class="ink-label">잉크</span>
+        </div>
         <!-- Always visible on the main menu, per spec §4.2 -- and, per the
              same clause, this button/markup must never appear on
              screen-battle (it doesn't: this section is entirely separate
@@ -262,6 +287,7 @@
       </div>
       <div class="main-menu-actions">
         <button id="btn-menu-deck" class="btn btn-primary">덱 관리</button>
+        <button id="btn-menu-shop" class="btn btn-secondary">상점</button>
         <button id="btn-menu-history" class="btn btn-secondary">전적</button>
         <button id="btn-menu-play" class="btn btn-primary" disabled>플레이</button>
       </div>
@@ -492,6 +518,70 @@
     </div>
   </section>
 
+  <!-- Shop screen (docs/design/card-shop-currency-proposal.md §6-§7, Phase
+       6/7 of the card-shop-currency milestone). Markup lifted verbatim from
+       assets/mockups/screen-shop.html's .shop-shell (balance chip, single-
+       card flip reveal, "collection complete" banner, progress strip reusing
+       the deck editor's .pool-grid/.pool-card-wrap/.pool-count-badge/
+       .pool-lock-badge tiles) -- wrapped in the same .deck-management-page +
+       back-button header chrome every other non-mockup-sourced screen in
+       this project uses (js/deck.js's slot list/editor, js/history.js).
+       #shop-pull-section and #shop-complete-banner are BOTH always present
+       in the DOM (unlike the mockup's three separate static states) --
+       js/shop.js toggles which is visible based on live ownership fetched
+       from GET /api/economy, since this is a real screen with one truth
+       source, not three independent review fragments. -->
+  <section id="screen-shop" class="screen hidden">
+    <div class="deck-management-page">
+      <div class="deck-management-header">
+        <button id="btn-shop-back" class="btn btn-secondary">← 뒤로</button>
+      </div>
+      <div id="shop-status" class="deck-status hidden"></div>
+      <div class="shop-shell">
+        <div class="shop-topbar">
+          <h2>상점</h2>
+          <div class="ink-balance">
+            <svg class="icon-ink"><use href="#icon-ink"></use></svg>
+            <span id="shop-ink-amount" class="ink-amount">0</span>
+            <span class="ink-label">잉크</span>
+          </div>
+        </div>
+
+        <p id="shop-error" class="editor-hint hidden"></p>
+
+        <div id="shop-pull-section" class="shop-pull-section hidden">
+          <div id="shop-reveal-stage" class="shop-reveal-stage">
+            <div class="reveal-card-inner">
+              <div class="reveal-face reveal-face-back">
+                <svg class="card-back-icon"><use href="#card-back"></use></svg>
+              </div>
+              <div id="shop-reveal-front" class="reveal-face reveal-face-front"></div>
+            </div>
+          </div>
+          <div class="shop-reveal-caption">
+            <p id="shop-caption-title" class="caption-title">뽑기 버튼을 눌러 카드를 획득하세요</p>
+            <p id="shop-caption-sub" class="caption-sub">가방(bag) 방식 — 이번 사이클에서 아직 3장 미만인 카드 중 하나가 나옵니다</p>
+          </div>
+          <button id="btn-shop-pull" class="btn btn-primary btn-pull">
+            <span id="shop-pull-btn-label">뽑기</span>
+            <span class="pull-cost"><svg class="icon-ink"><use href="#icon-ink"></use></svg>50 잉크</span>
+          </button>
+        </div>
+
+        <div id="shop-complete-banner" class="shop-complete-banner hidden">
+          <svg class="icon-check"><use href="#icon-check"></use></svg>
+          <h3>모든 확장 카드를 보유했습니다</h3>
+          <p>확장 풀 8종을 전부 3장씩 모았습니다 — 더 이상 뽑을 카드가 없습니다.</p>
+        </div>
+
+        <div class="shop-progress">
+          <div id="shop-progress-label" class="shop-progress-label">확장 카드 진행 · 0/8종 완료</div>
+          <div id="shop-pool-grid" class="pool-grid"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- Deck-select-before-lobby screen (plan.md 4.4, spec §6.1). Reuses the
        same .deck-slot-tile look as 덱 관리's slot list (css/pvp-components.css)
        -- only valid (20-30 card) slots are clickable; invalid/empty slots
@@ -621,6 +711,7 @@
 <script src="js/screens.js"></script>
 <script src="js/deck.js"></script>
 <script src="js/history.js"></script>
+<script src="js/shop.js"></script>
 <script src="js/match.js"></script>
 <script src="js/battle.js"></script>
 <script src="js/ui.js"></script>
