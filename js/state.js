@@ -61,6 +61,17 @@ const AL = (() => {
       mana: PLAYER_START.maxMana,
       maxMana: PLAYER_START.maxMana,
       block: 0,
+      // Weaken (docs/design/card-shop-currency-proposal.md §3, Phase 1 of
+      // the card-shop-currency milestone): integer stack counter, tracked
+      // per side exactly like `block` above (accumulates without cap,
+      // decays by 1 at the end of THIS side's own turn -- see the decay
+      // hook alongside the block reset in localTurnStart()/
+      // applyRemoteTurnStart() below). While >=1, every Attack card THIS
+      // side plays has its final damage reduced 25% (floored) -- see
+      // applyWeakenToDamage()'s doc comment for the exact 5-step order and
+      // its interaction with Bloodlust. Public info, mirrored the same way
+      // block is (see applyWeaken()'s doc comment for why).
+      weaken: 0,
       powers: { ironSkin: 0, bloodlust: 0, hoarder: 0 },
       masterDeck: [],
       drawPile: [],
@@ -457,34 +468,97 @@ const AL = (() => {
     fx('block', { side: sideOf(actor), amount });
   }
 
+  // Grant/apply Weaken stacks to `target` (docs/design/
+  // card-shop-currency-proposal.md §3: "부여 ... 누적, 상한 없음 -- 방어도와
+  // 동일한 취급"). This is the engine primitive the 8 not-yet-implemented
+  // expansion cards (Phase 3 of the milestone) will call from
+  // applyCardEffect() below, same shape as applyBlock()/applyDamage() above
+  // -- no card calls it yet this phase, but the primitive needs to exist and
+  // be correct now since the damage-calc integration (applyWeakenToDamage(),
+  // just below) and the turn-decay hook both depend on `target.weaken` being
+  // a real, correctly-accumulating counter.
+  //
+  // Public-visibility note (mirrored-state sync, task point 5): deliberately
+  // NOT treated as hidden information the way hand contents are. Every
+  // future card that calls this runs through applyCardEffect(), which
+  // already executes identically on BOTH clients for a revealed card --
+  // once a card is played, the playing client runs it via resolveCard() and
+  // the observing client runs the SAME applyCardEffect() call via
+  // applyRemoteCardPlay() (see that function below). So `target.weaken`
+  // requires no separate network message to stay in sync: it "piggybacks"
+  // on the same playCard action the effect itself piggybacks on, exactly
+  // like `target.block`/`target.hp` already do -- this function's mutation
+  // is just as automatically mirrored as applyBlock()'s. Treating it as
+  // public (not hidden) is also the right design call independent of the
+  // implementation convenience: Weaken is a numeric battlefield status
+  // (like block), not information about deck/hand contents -- there is no
+  // "hidden info" concern analogous to not knowing the opponent's hand.
+  function applyWeaken(target, stacks) {
+    if (!stacks) return;
+    target.weaken += stacks;
+    fx('weaken', { side: sideOf(target), amount: stacks });
+  }
+
   function attackBonus(actor) { return actor.powers.bloodlust * 2; }
   function skillBonus(actor) { return actor.powers.ironSkin * 2; }
+
+  // Weaken damage-order integration (docs/design/card-shop-currency-
+  // proposal.md §3, exact 5-step order):
+  //   1. card's own base damage + card-specific conditional bonus
+  //   2. + attacker's Bloodlust bonus
+  //   3. *** if the ATTACKER has >=1 Weaken stack, x0.75 and floor ***
+  //   4. subtract target's block (unless the card ignores block)
+  //   5. apply remainder to target's HP
+  // Steps 4-5 are already applyDamage()/dealDamage()'s job (unchanged by
+  // this feature). This function is purely step 3, and every call site in
+  // applyCardEffect() below is expected to have already folded steps 1-2
+  // into `rawDamage` before calling this -- i.e. `applyDamage(target,
+  // applyWeakenToDamage(actor, <step1+2 total>), ignoreBlock)`. Deliberately
+  // keyed off `actor` (the character PLAYING the Attack card), never
+  // `target` -- spec is explicit Weaken reduces "that character's own
+  // Attack-card damage output", not "damage taken", so this must never be
+  // read as a defensive stat.
+  function applyWeakenToDamage(actor, rawDamage) {
+    return actor.weaken > 0 ? Math.floor(rawDamage * 0.75) : rawDamage;
+  }
 
   function applyCardEffect(card, actor, target) {
     switch (card.id) {
       case 'strike':
-        applyDamage(target, 6 + attackBonus(actor), false);
+        applyDamage(target, applyWeakenToDamage(actor, 6 + attackBonus(actor)), false);
         break;
       case 'defend':
         applyBlock(actor, 5 + skillBonus(actor));
         break;
       case 'heavySlash':
-        applyDamage(target, 14 + attackBonus(actor), false);
+        applyDamage(target, applyWeakenToDamage(actor, 14 + attackBonus(actor)), false);
         break;
       case 'twinStrike':
-        applyDamage(target, 4 + attackBonus(actor), false);
-        if (target.hp > 0) applyDamage(target, 4, false);
+        // Both hits are this Attack card's own damage output, so each is
+        // independently folded through steps 1-2 then reduced by step 3
+        // (applyWeakenToDamage) before block/HP (steps 4-5) — the second hit
+        // has no Bloodlust/card bonus of its own (matches the pre-Weaken
+        // code), but it is still Attack-card damage the actor dealt, so
+        // Weaken still applies to it.
+        applyDamage(target, applyWeakenToDamage(actor, 4 + attackBonus(actor)), false);
+        if (target.hp > 0) applyDamage(target, applyWeakenToDamage(actor, 4), false);
         break;
       case 'piercingStrike':
-        applyDamage(target, 10 + attackBonus(actor), true);
+        // ignoreBlock=true only skips step 4 (block subtraction); step 3
+        // (Weaken) still applies before that, per the 5-step order.
+        applyDamage(target, applyWeakenToDamage(actor, 10 + attackBonus(actor)), true);
         break;
       case 'execute': {
         const bonus = (target.hp / target.maxHp) <= 0.3 ? 10 : 0;
-        applyDamage(target, 10 + bonus + attackBonus(actor), false);
+        applyDamage(target, applyWeakenToDamage(actor, 10 + bonus + attackBonus(actor)), false);
         break;
       }
       case 'recklessSwing':
-        applyDamage(target, 12 + attackBonus(actor), false);
+        applyDamage(target, applyWeakenToDamage(actor, 12 + attackBonus(actor)), false);
+        // Self-inflicted recoil, not Attack-card damage dealt TO a target —
+        // Weaken reduces "that character's own Attack-card damage output"
+        // against the target, not this recoil, so it is deliberately left
+        // out of applyWeakenToDamage().
         actor.hp = Math.max(0, actor.hp - 3); // self damage bypasses block
         fx('damage', { side: sideOf(actor), amount: 3, selfInflicted: true });
         break;
@@ -575,6 +649,19 @@ const AL = (() => {
       ? drawCount
       : PLAYER_START.drawPerTurn + state.opponent.powers.hoarder; // fallback only — see doc comment above
     state.opponent.block = 0;
+    // Weaken decay (docs/design/card-shop-currency-proposal.md §3: "자기
+    // 턴이 끝날 때마다... 스택이 1 감소, 0 미만으로는 내려가지 않음", same
+    // turn-boundary hook as the block reset just above). This function fires
+    // when the OPPONENT's own turn is starting again — i.e. their own
+    // preceding turn has just fully ended with nothing further able to
+    // change their stacks in between — so decaying `state.opponent.weaken`
+    // here is the OPPONENT's own turn-end decay, mirrored from their real
+    // client via the same 'turnStart' action their localTurnStart() already
+    // sends (no separate network message needed, same reasoning as
+    // applyWeaken()'s doc comment on public/mirrored visibility). Never
+    // decays `state.player.weaken` here — that only ever decays in
+    // localTurnStart() below, on the local player's OWN turn boundary.
+    if (state.opponent.weaken > 0) state.opponent.weaken -= 1;
     state.opponent.mana = state.opponent.maxMana;
     state.turn = 'opponent';
     state.turnBusy = false;
@@ -724,6 +811,14 @@ const AL = (() => {
   // own draw, which needs no network round-trip — see spec §6.3 step 2).
   function localTurnStart() {
     state.player.block = 0;
+    // Weaken decay — mirror image of the decay in applyRemoteTurnStart()
+    // above, same doc-comment reasoning: this function fires when the LOCAL
+    // player's own turn is starting again, which is the same turn-boundary
+    // hook the block reset just above already uses for "my own preceding
+    // turn has fully ended." Decays only `state.player.weaken`, never
+    // `state.opponent.weaken` — that decays on the opponent's own boundary
+    // in applyRemoteTurnStart(), not here.
+    if (state.player.weaken > 0) state.player.weaken -= 1;
     state.player.mana = state.player.maxMana;
     state.selected = null;
     state.turn = 'player';
