@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<title>ARCANE LEDGER — 상점 화면 목업 (docs/design/card-shop-currency-proposal.md §6-§7, art-direction.md §9)</title>
+<link rel="stylesheet" href="../../css/style.css" />
+<link rel="stylesheet" href="pvp-components.css" />
+</head>
+<body>
+
+<!-- Sprite wrapper: position:absolute/width:0/height:0/overflow:hidden, NOT display:none —
+     display:none on an ancestor stops Chrome/Safari computing the objectBoundingBox that
+     card-back's gradients need. Same fix as assets/icons.svg / screen-battle-pvp.html. -->
+<svg style="position:absolute; width:0; height:0; overflow:hidden" aria-hidden="true">
+  <symbol id="icon-sword" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M14.5 3.5L20.5 9.5L11 19L7 20L8 16L17.5 6.5" />
+    <path d="M4 20L7.5 16.5" />
+    <path d="M13 5L19 11" />
+  </symbol>
+  <symbol id="icon-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 3L19 6V11C19 15.5 16 19 12 21C8 19 5 15.5 5 11V6L12 3Z" />
+  </symbol>
+  <symbol id="icon-crown" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 18H20L21 8L16 12L12 6L8 12L3 8L4 18Z" />
+  </symbol>
+  <symbol id="icon-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="5" y="11" width="14" height="10" rx="2" />
+    <path d="M8 11V7.5C8 5 9.8 3 12 3C14.2 3 16 5 16 7.5V11" />
+  </symbol>
+
+  <!-- icon-ink / icon-check: see assets/icons.svg for the source of truth + design rationale. -->
+  <symbol id="icon-ink" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M8 9H16V16A4 4 0 0 1 8 16V9Z" />
+    <path d="M10.3 9V6.6C10.3 5.7 11 5 11.9 5H12.1C13 5 13.7 5.7 13.7 6.6V9" />
+    <path d="M18.5 2.5L11.5 9.5" />
+    <path d="M17 2.7L18.5 2.5L18.3 4" />
+  </symbol>
+  <symbol id="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M5 12.5L9.5 17L19 6" />
+  </symbol>
+
+  <!-- card-back: see assets/icons.svg for the source of truth definition -->
+  <symbol id="card-back" viewBox="0 0 132 184">
+    <defs>
+      <linearGradient id="cardback-bg" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#241a2c" />
+        <stop offset="1" stop-color="#1e1624" />
+      </linearGradient>
+      <radialGradient id="cardback-glow" cx="50%" cy="50%" r="50%">
+        <stop offset="0" stop-color="#3a2c46" />
+        <stop offset="1" stop-color="#1e1624" stop-opacity="0" />
+      </radialGradient>
+    </defs>
+    <rect x="0.75" y="0.75" width="130.5" height="182.5" rx="8" fill="url(#cardback-bg)" stroke="#d4af37" stroke-width="1.5" />
+    <rect x="8" y="8" width="116" height="168" rx="4" fill="none" stroke="rgba(242,233,216,0.16)" stroke-width="1" />
+    <circle cx="66" cy="92" r="36" fill="url(#cardback-glow)" />
+    <g stroke="#d4af37" stroke-opacity="0.28" stroke-width="1">
+      <line x1="66" y1="30" x2="66" y2="50" />
+      <line x1="66" y1="134" x2="66" y2="154" />
+      <line x1="20" y1="92" x2="40" y2="92" />
+      <line x1="92" y1="92" x2="112" y2="92" />
+      <line x1="34" y1="52" x2="47" y2="65" />
+      <line x1="98" y1="52" x2="85" y2="65" />
+      <line x1="34" y1="132" x2="47" y2="119" />
+      <line x1="98" y1="132" x2="85" y2="119" />
+    </g>
+    <g stroke="#d4af37" stroke-width="1.4" fill="none">
+      <rect x="16" y="20" width="9" height="9" transform="rotate(45 20.5 24.5)" />
+      <rect x="107" y="20" width="9" height="9" transform="rotate(45 111.5 24.5)" />
+      <rect x="16" y="155" width="9" height="9" transform="rotate(45 20.5 159.5)" />
+      <rect x="107" y="155" width="9" height="9" transform="rotate(45 111.5 159.5)" />
+    </g>
+    <path transform="translate(44.4,70.4) scale(1.8)" fill="#d4af37" d="M12 3C12 3 6 11 6 15.5C6 19 8.7 21 12 21C15.3 21 18 19 18 15.5C18 11 12 3 12 3Z" />
+  </symbol>
+</svg>
+
+<header class="topbar">
+  <span class="brand">ARCANE LEDGER</span>
+</header>
+
+<div class="mockup-page">
+
+  <div>
+    <div class="mockup-caption">screen: 상점 — 기본 상태 (design doc §6.1-§6.2, art-direction.md §9)</div>
+
+    <div class="shop-shell">
+      <div class="shop-topbar">
+        <h2>상점</h2>
+        <div class="ink-balance">
+          <svg class="icon-ink"><use href="#icon-ink"></use></svg>
+          <span class="ink-amount">220</span>
+          <span class="ink-label">잉크</span>
+        </div>
+      </div>
+
+      <div class="shop-pull-section">
+        <div class="shop-reveal-stage">
+          <div class="reveal-card-inner">
+            <div class="reveal-face reveal-face-back">
+              <svg class="card-back-icon"><use href="#card-back"></use></svg>
+            </div>
+            <div class="reveal-face reveal-face-front">
+              <div class="card type-attack">
+                <div class="card-cost">2</div>
+                <div class="card-icon-chip"><svg><use href="#icon-sword"></use></svg></div>
+                <div class="card-name">Crippling Blow</div>
+                <hr class="card-divider" />
+                <div class="card-text">8 데미지, 상대에게 약화 1 부여</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="shop-reveal-caption">
+          <p class="caption-title">뽑기 버튼을 눌러 카드를 획득하세요</p>
+          <p class="caption-sub">가방(bag) 방식 — 이번 사이클에서 아직 3장 미만인 카드 중 하나가 나옵니다</p>
+        </div>
+        <button class="btn btn-primary btn-pull">
+          뽑기
+          <span class="pull-cost"><svg class="icon-ink"><use href="#icon-ink"></use></svg>50 잉크</span>
+        </button>
+      </div>
+
+      <div class="shop-progress">
+        <div class="shop-progress-label">확장 카드 진행 · 3/8종 완료</div>
+        <div class="pool-grid">
+
+          <div class="pool-card-wrap">
+            <div class="card type-attack">
+              <div class="card-cost">1</div>
+              <div class="card-icon-chip"><svg><use href="#icon-sword"></use></svg></div>
+              <div class="card-name">Enfeeble</div>
+              <hr class="card-divider" />
+              <div class="card-text">0 데미지, 상대에게 약화 2 부여</div>
+            </div>
+            <span class="pool-count-badge full">3/3</span>
+          </div>
+
+          <div class="pool-card-wrap">
+            <div class="card type-attack">
+              <div class="card-cost">2</div>
+              <div class="card-icon-chip"><svg><use href="#icon-sword"></use></svg></div>
+              <div class="card-name">Crippling Blow</div>
+              <hr class="card-divider" />
+              <div class="card-text">8 데미지, 상대에게 약화 1 부여</div>
+            </div>
+            <span class="pool-count-badge">1/3</span>
+          </div>
+
+          <div class="pool-card-wrap locked" title="상점에서 구매 가능">
+            <div class="card type-attack">
+              <div class="card-cost">2</div>
+              <div class="card-icon-chip"><svg><use href="#icon-sword"></use></svg></div>
+              <div class="card-name">Exploit Weakness</div>
+              <hr class="card-divider" />
+              <div class="card-text">8 데미지, 상대가 이미 약화 상태면 16 데미지</div>
+            </div>
+            <span class="pool-lock-badge"><svg><use href="#icon-lock"></use></svg></span>
+          </div>
+
+          <div class="pool-card-wrap locked" title="상점에서 구매 가능">
+            <div class="card type-attack">
+              <div class="card-cost">1</div>
+              <div class="card-icon-chip"><svg><use href="#icon-sword"></use></svg></div>
+              <div class="card-name">Overextend</div>
+              <hr class="card-divider" />
+              <div class="card-text">10 데미지, 자신에게 약화 2 부여</div>
+            </div>
+            <span class="pool-lock-badge"><svg><use href="#icon-lock"></use></svg></span>
+          </div>
+
+          <div class="pool-card-wrap">
+            <div class="card type-skill">
+              <div class="card-cost">1</div>
+              <div class="card-icon-chip"><svg><use href="#icon-shield"></use></svg></div>
+              <div class="card-name">Steady Breath</div>
+              <hr class="card-divider" />
+              <div class="card-text">자신의 약화 스택 전부 제거, 방어도 3 획득</div>
+            </div>
+            <span class="pool-count-badge">2/3</span>
+          </div>
+
+          <div class="pool-card-wrap locked" title="상점에서 구매 가능">
+            <div class="card type-power">
+              <div class="card-cost">2</div>
+              <div class="card-icon-chip"><svg><use href="#icon-crown"></use></svg></div>
+              <div class="card-name">Corrosive Aura</div>
+              <hr class="card-divider" />
+              <div class="card-text">이후 Attack 카드로 데미지를 줄 때마다 상대에게 약화 1 부여 (영구)</div>
+            </div>
+            <span class="pool-lock-badge"><svg><use href="#icon-lock"></use></svg></span>
+          </div>
+
+          <div class="pool-card-wrap locked" title="상점에서 구매 가능">
+            <div class="card type-attack">
+              <div class="card-cost">2</div>
+              <div class="card-icon-chip"><svg><use href="#icon-sword"></use></svg></div>
+              <div class="card-name">Crushing Curse</div>
+              <hr class="card-divider" />
+              <div class="card-text">4 데미지, 상대에게 약화 3 부여</div>
+            </div>
+            <span class="pool-lock-badge"><svg><use href="#icon-lock"></use></svg></span>
+          </div>
+
+          <div class="pool-card-wrap">
+            <div class="card type-skill">
+              <div class="card-cost">1</div>
+              <div class="card-icon-chip"><svg><use href="#icon-shield"></use></svg></div>
+              <div class="card-name">Opportunist</div>
+              <hr class="card-divider" />
+              <div class="card-text">카드 1장 드로우, 상대가 약화 상태면 카드 1장 추가 드로우</div>
+            </div>
+            <span class="pool-count-badge">1/3</span>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <p class="mockup-note">
+      상단 <code>.ink-balance</code>는 잉크 잔액(§5) — 아이콘은 신규 <code>icon-ink</code>(잉크병+깃펜,
+      <code>assets/icons.svg</code>). 중앙 <code>.shop-pull-section</code>은 카드 뒷면(<code>card-back</code>) →
+      결과 카드로 넘어가는 단순 3D 플립(<code>.reveal-card-inner</code>, CSS <code>rotateY</code> 하나뿐 —
+      설계 문서 §6.3의 "슬롯머신식 연출 없음" 스코프 그대로 최소 애니메이션으로 제한) + 뽑기 버튼(비용
+      50 잉크 명시). 하단 <code>.shop-progress</code>는 덱 에디터 풀 그리드의 <code>.pool-card-wrap</code>/
+      <code>.pool-count-badge</code>/<code>.pool-lock-badge</code>를 그대로 재사용한 진행 현황 — 상점과 덱
+      에디터에서 정확히 같은 타일이 보이도록 통일했다(아래 목업 노트에 잠김/완료 상태 재설계 근거 상세).
+    </p>
+  </div>
+
+  <div>
+    <div class="mockup-caption">state: 뽑기 결과 공개 (design doc §6.2 "1회 뽑기 = 카드 1장 지급")</div>
+    <div class="shop-shell" style="max-width:300px;">
+      <div class="shop-pull-section" style="margin-bottom:0;">
+        <div class="shop-reveal-stage revealed">
+          <div class="reveal-card-inner">
+            <div class="reveal-face reveal-face-back">
+              <svg class="card-back-icon"><use href="#card-back"></use></svg>
+            </div>
+            <div class="reveal-face reveal-face-front">
+              <div class="card type-attack">
+                <div class="card-cost">2</div>
+                <div class="card-icon-chip"><svg><use href="#icon-sword"></use></svg></div>
+                <div class="card-name">Crippling Blow</div>
+                <hr class="card-divider" />
+                <div class="card-text">8 데미지, 상대에게 약화 1 부여</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="shop-reveal-caption">
+          <p class="caption-title">카드를 획득했습니다!</p>
+          <p class="caption-sub">Crippling Blow · 2/3 보유</p>
+        </div>
+        <button class="btn btn-primary btn-pull">
+          한 번 더 뽑기
+          <span class="pull-cost"><svg class="icon-ink"><use href="#icon-ink"></use></svg>50 잉크</span>
+        </button>
+      </div>
+    </div>
+    <p class="mockup-note">
+      <code>.shop-reveal-stage.revealed</code>가 붙으면 <code>.reveal-card-inner</code>가 180° 회전해 뒷면 →
+      앞면으로 넘어간다(<code>prefers-reduced-motion</code> 존중, 트랜지션 꺼짐). 가방 방식(§6.2)이라
+      "원치 않는 카드"라는 개념이 없으므로 결과 카피는 항상 긍정적으로 통일 — "새 카드!" 같은 희귀도 강조
+      문구 대신 담백하게 "카드를 획득했습니다"만 쓰고, 실질적으로 유용한 정보(현재 보유 매수)를 그
+      아래 보여준다.
+    </p>
+  </div>
+
+  <div>
+    <div class="mockup-caption">state: 컬렉션 완성 — 확장 카드 8종 전부 3/3 보유 (design doc §6.2 마지막 문단)</div>
+    <div class="shop-shell">
+      <div class="shop-topbar">
+        <h2>상점</h2>
+        <div class="ink-balance">
+          <svg class="icon-ink"><use href="#icon-ink"></use></svg>
+          <span class="ink-amount">1,860</span>
+          <span class="ink-label">잉크</span>
+        </div>
+      </div>
+
+      <div class="shop-complete-banner">
+        <svg class="icon-check"><use href="#icon-check"></use></svg>
+        <h3>모든 확장 카드를 보유했습니다</h3>
+        <p>확장 풀 8종을 전부 3장씩 모았습니다 — 더 이상 뽑을 카드가 없습니다.</p>
+      </div>
+
+      <div class="shop-progress">
+        <div class="shop-progress-label">확장 카드 진행 · 8/8종 완료</div>
+        <div class="pool-grid">
+
+          <div class="pool-card-wrap">
+            <div class="card type-attack"><div class="card-cost">1</div><div class="card-icon-chip"><svg><use href="#icon-sword"></use></svg></div><div class="card-name">Enfeeble</div><hr class="card-divider" /><div class="card-text">0 데미지, 상대에게 약화 2 부여</div></div>
+            <span class="pool-count-badge full">3/3</span>
+          </div>
+          <div class="pool-card-wrap">
+            <div class="card type-attack"><div class="card-cost">2</div><div class="card-icon-chip"><svg><use href="#icon-sword"></use></svg></div><div class="card-name">Crippling Blow</div><hr class="card-divider" /><div class="card-text">8 데미지, 상대에게 약화 1 부여</div></div>
+            <span class="pool-count-badge full">3/3</span>
+          </div>
+          <div class="pool-card-wrap">
+            <div class="card type-attack"><div class="card-cost">2</div><div class="card-icon-chip"><svg><use href="#icon-sword"></use></svg></div><div class="card-name">Exploit Weakness</div><hr class="card-divider" /><div class="card-text">8 데미지, 상대가 이미 약화 상태면 16 데미지</div></div>
+            <span class="pool-count-badge full">3/3</span>
+          </div>
+          <div class="pool-card-wrap">
+            <div class="card type-attack"><div class="card-cost">1</div><div class="card-icon-chip"><svg><use href="#icon-sword"></use></svg></div><div class="card-name">Overextend</div><hr class="card-divider" /><div class="card-text">10 데미지, 자신에게 약화 2 부여</div></div>
+            <span class="pool-count-badge full">3/3</span>
+          </div>
+          <div class="pool-card-wrap">
+            <div class="card type-skill"><div class="card-cost">1</div><div class="card-icon-chip"><svg><use href="#icon-shield"></use></svg></div><div class="card-name">Steady Breath</div><hr class="card-divider" /><div class="card-text">자신의 약화 스택 전부 제거, 방어도 3 획득</div></div>
+            <span class="pool-count-badge full">3/3</span>
+          </div>
+          <div class="pool-card-wrap">
+            <div class="card type-power"><div class="card-cost">2</div><div class="card-icon-chip"><svg><use href="#icon-crown"></use></svg></div><div class="card-name">Corrosive Aura</div><hr class="card-divider" /><div class="card-text">이후 Attack 카드로 데미지를 줄 때마다 상대에게 약화 1 부여 (영구)</div></div>
+            <span class="pool-count-badge full">3/3</span>
+          </div>
+          <div class="pool-card-wrap">
+            <div class="card type-attack"><div class="card-cost">2</div><div class="card-icon-chip"><svg><use href="#icon-sword"></use></svg></div><div class="card-name">Crushing Curse</div><hr class="card-divider" /><div class="card-text">4 데미지, 상대에게 약화 3 부여</div></div>
+            <span class="pool-count-badge full">3/3</span>
+          </div>
+          <div class="pool-card-wrap">
+            <div class="card type-skill"><div class="card-cost">1</div><div class="card-icon-chip"><svg><use href="#icon-shield"></use></svg></div><div class="card-name">Opportunist</div><hr class="card-divider" /><div class="card-text">카드 1장 드로우, 상대가 약화 상태면 카드 1장 추가 드로우</div></div>
+            <span class="pool-count-badge full">3/3</span>
+          </div>
+
+        </div>
+      </div>
+    </div>
+    <p class="mockup-note">
+      뽑기 버튼/리빌 스테이지 전체를 <code>.shop-complete-banner</code>로 교체 — 문구는 설계 문서 §6.2가
+      명시한 그대로("모든 확장 카드를 보유했습니다") 사용했다. 잠긴 타일의 "억제된" 톤(점선/무채색, 아래
+      목업 노트 참고)과 정반대로 골드 테두리 + <code>icon-check</code> + 따뜻한 배경 틴트를 써서 이 상태가
+      "막힘"이 아니라 "완주"로 읽히게 했다 — 과업 브리프가 명시적으로 요구한 잠김 vs. 완료 상태의 대비를
+      상점 화면에서도 그대로 이어간다. 잉크는 계속 승/패로 쌓이므로(§5) 잔액 표시는 이 상태에서도 그대로
+      유지.
+    </p>
+  </div>
+
+</div>
+
+</body>
+</html>

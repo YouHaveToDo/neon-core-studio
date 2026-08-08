@@ -84,19 +84,51 @@
 .pool-count-badge.full { background: var(--card-type-color, var(--gold)); color: var(--bg); border-color: transparent; font-weight: bold; }
 
 /* Locked expansion-pool card tile (docs/design/card-shop-currency-proposal.md
-   §7, Phase 3 of the card-shop-currency milestone): "0 하나도 없어서 못
-   넣음" -- deliberately a DIFFERENT, heavier treatment than .maxed above
-   ("다 채워서 더 못 넣음") so the two read as distinct at a glance, per that
-   section's explicit instruction. No dedicated art pass exists yet for this
-   state (checked art-direction.md + assets/mockups -- neither has a "locked
-   card tile" spec) -- this reuses the existing maxed-tile desaturation
-   pattern at a heavier strength (lower opacity + full grayscale) as an
-   explicit placeholder, flagged in the task report as still needing a real
-   art pass. */
-.pool-card-wrap.locked .card { opacity: 0.28; filter: grayscale(1); cursor: default; }
+   §7, art-direction.md §9): "0 하나도 없어서 못 넣음" -- deliberately a
+   DIFFERENT, heavier treatment than .maxed above ("다 채워서 더 못 넣음") so
+   the two read as distinct at a glance, per that section's explicit
+   instruction. Real art pass replacing the earlier grayscale+lock-icon
+   placeholder (see git history / assets/mockups/pvp-components.css for the
+   full design writeup this was lifted from verbatim).
+
+   Design goal: read as "obtainable -- go get it" (an invitation), not
+   "broken/forbidden" -- and be unmistakably distinct from .maxed ("owned to
+   the cap," a completion state), not a variation on the same "disabled"
+   idea.
+
+   Badge: reuses the .pool-count-badge numeral family instead of a separate
+   lock-icon glyph -- locked is definitionally "0/3" (locked <=> cap === 0
+   <=> owned === 0, see poolCardCap() in js/deck.js), so showing the real
+   count keeps ONE numeric badge language across every ownership state
+   instead of switching to an unrelated icon system just for the zero case.
+   Hollow/dashed here (the "empty" end of the spectrum) vs. .full's solid
+   gold fill (the "complete" end) -- opposite visual weights map straight
+   onto opposite meanings. The DOM still renders an icon-lock <use> (see
+   js/deck.js) -- hidden below and its slot repurposed for "0/3" text via
+   ::before, so this stays a CSS-only change with no HTML/JS touched.
+
+   Tile: much lighter desaturation than the placeholder (grayscale(0.85) +
+   opacity 0.6, not grayscale(1) + opacity 0.28) so name/type-color bar/
+   silhouette stay legible enough to be worth wanting -- a shop window, not a
+   redacted document. Dashed outline borrows the "not yet, but obtainable"
+   vocabulary this file's .deck-slot-tile.empty already uses, instead of a
+   third "not available" visual language. */
+.pool-card-wrap.locked { box-sizing: border-box; border: 1px dashed var(--line); border-radius: 10px; }
+.pool-card-wrap.locked .card { opacity: 0.6; filter: grayscale(0.85); cursor: default; }
 .pool-card-wrap.locked .card:hover { transform: scale(0.8182); }
-.pool-lock-badge { position: absolute; top: -7px; right: -7px; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; background: var(--bg-inset); border: 1px solid var(--line); border-radius: 50%; color: var(--ink-faint); z-index: 3; box-shadow: 0 2px 5px rgba(0,0,0,0.4); }
-.pool-lock-badge svg { width: 13px; height: 13px; }
+.pool-lock-badge {
+  position: absolute; top: -7px; right: -7px; min-width: 26px; text-align: center;
+  background: var(--bg-inset); border: 1px dashed var(--ink-faint); border-radius: 10px;
+  padding: 2px 6px; font-family: var(--font-mono); font-size: 10px; color: var(--ink-faint);
+  z-index: 3; box-shadow: 0 2px 5px rgba(0,0,0,0.4);
+}
+/* Opaque bg-inset (not transparent): adjacent pool-grid tiles' badges
+   routinely overlap a few px at this grid's gap (every existing badge here
+   is opaque so overlaps stack cleanly) -- a transparent badge let the next
+   tile's cost-badge visually slice through the dashed outline/"0/3" text,
+   confirmed via headless screenshot at the real 108px tile width. */
+.pool-lock-badge svg { display: none; }
+.pool-lock-badge::before { content: "0/3"; }
 
 /* Deck list = the "result" area — deliberately a compact list, not a card
    grid, so pool vs. deck read as two different silhouettes at a glance. */

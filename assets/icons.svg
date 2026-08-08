@@ -280,6 +280,32 @@
     <path d="M9 5L16 12L9 19" />
   </symbol>
 
+  <!-- Shop / currency additions (docs/design/card-shop-currency-proposal.md §5-§6,
+       art-direction.md §9). icon-ink deliberately does NOT reuse icon-mana's
+       teardrop silhouette — Ink and Mana are two unrelated resources (match currency
+       vs. account currency) shown side by side in places (e.g. a future top bar), so
+       they need to read as different shapes at a glance, not just different colors.
+       Ink is drawn as an inkwell + quill instead: a rounded-bottom bottle (open path,
+       reads as glass/ceramic vessel) with a narrow neck and a quill resting across it
+       — ties directly to the "장부에 새 카드를 새기려면 잉크가 필요하다" flavor the
+       design doc gives the currency name, and to this UI's ledger/quill visual
+       language generally (serif type, card-back's ink-drop motif). Same 24x24 stroke
+       convention as the rest of the set. -->
+
+  <symbol id="icon-ink" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M8 9H16V16A4 4 0 0 1 8 16V9Z" />
+    <path d="M10.3 9V6.6C10.3 5.7 11 5 11.9 5H12.1C13 5 13.7 5.7 13.7 6.6V9" />
+    <path d="M18.5 2.5L11.5 9.5" />
+    <path d="M17 2.7L18.5 2.5L18.3 4" />
+  </symbol>
+
+  <!-- icon-check: generic completion glyph — used by the shop's "collection complete"
+       state (all 8 expansion cards owned at 3/3) rather than reusing icon-crown
+       (already this palette's Power-card/boss signal, a different meaning). -->
+  <symbol id="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M5 12.5L9.5 17L19 6" />
+  </symbol>
+
   <!-- Card back: 132x184 viewBox to match the card frame exactly (art-direction.md
        §3). Fixed palette colors (not currentColor) since a hidden card always reads
        the same regardless of context: geometric/emblematic, no illustration, same
