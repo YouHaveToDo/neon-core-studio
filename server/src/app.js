@@ -4,6 +4,7 @@ const authRoutes = require('./routes/auth');
 const deckRoutes = require('./routes/decks');
 const matchHistoryRoutes = require('./routes/matchHistory');
 const roomRoutes = require('./routes/rooms');
+const economyRoutes = require('./routes/economy');
 const { CLIENT_ORIGIN, IS_PRODUCTION } = require('./config');
 
 function createApp() {
@@ -34,6 +35,7 @@ function createApp() {
   app.use('/api/decks', deckRoutes);
   app.use('/api/match-history', matchHistoryRoutes);
   app.use('/api/rooms', roomRoutes);
+  app.use('/api/economy', economyRoutes);
 
   // Fallback error handler so unexpected throws return JSON, not an HTML
   // stack trace, to a game client.
