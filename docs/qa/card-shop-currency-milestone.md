@@ -499,3 +499,218 @@ expected value.
 - Migration verified: `/Users/jungjongchan/Desktop/company/server/migrations/003_add_ink_and_expansion_cards.sql`
 - `server/.env` confirmed pointing at local Postgres (`neoncore_dev`) before any
   testing began, per the task's explicit warning.
+
+---
+
+## Follow-up verification — re-check of commit `f4a14b7`'s fixes (2026-08-08)
+
+**Scope:** independently re-verifying all 3 Blocker fixes commit `f4a14b7` ("Fix 3 QA
+blockers: battle UI crash, Ink double-award race, Weaken decay") claims above. Same
+rigor as the original pass and this repo's established convention
+(`docs/qa/online-pvp-milestone.md`'s follow-up sections): real spawned server, real
+local Postgres (`postgresql://postgres@localhost:5432/neoncore_dev`, confirmed via
+`server/.env` before anything ran — no writes ever touched anything else), real
+client bundle via a static file server, Playwright (`chromium`, scratchpad-local
+install, not a repo dependency) for anything UI-relevant, direct DB queries rather
+than trusting WS replies alone. Did not just re-run the programmer's own new/updated
+scripts (`expansion-card-battle-ui-smoke-test.js`, `report-result-race-smoke-test.js`,
+`weaken-status-test.js`'s Test D update) and call it done — independent repro scripts
+were written from scratch this session (not copied) and are reproduced/summarized
+inline below so a programmer can re-derive them without re-discovering anything. The
+programmer's own scripts were also run fresh first, as a baseline.
+
+### Updated verdict
+
+**All 3 Blockers are genuinely fixed. Ready for production as far as this milestone's
+scope is concerned.** No new regressions found despite specifically hunting for them
+(adversarial `CARD_DEFS[cardId]` re-scan, multi-stack/self-cast/forced-timeout Weaken
+paths, and cross-path races against `finalizeForfeit`/`finalizeVoidMatch`, not just
+`report_result`). Full 18-script regression suite green, run fresh.
+
+### Regression suite — full fresh re-run, all 18 scripts, nothing regressed
+
+Ran every script listed in the task (13 plain Node + `frozen-client-turn-timeout-test.js`,
+`double-disconnect-smoke-test.js`, `room-list-smoke-test.js`,
+`room-list-ui-fill-race-test.js`, `weaken-status-test.js`, `ink-award-smoke-test.js`,
+`expansion-cards-test.js`, `expansion-deck-ownership-test.js`, `pull-smoke-test.js`,
+`shop-ui-smoke-test.js`, `expansion-card-battle-ui-smoke-test.js`,
+`report-result-race-smoke-test.js` — 18 total) fresh against a live local server/DB,
+migrations confirmed already applied (`node scripts/migrate.js` → "Migrations up to
+date"). The 4 Playwright-dependent scripts (`frozen-client-turn-timeout-test.js`,
+`room-list-ui-fill-race-test.js`, `shop-ui-smoke-test.js`,
+`expansion-card-battle-ui-smoke-test.js`) needed `NODE_PATH` pointed at a local
+Playwright install (not a repo dependency, same as the original pass). **All 18 pass,
+no failures.**
+
+### Finding 1 re-check: battle UI crash — fixed, verified two independent ways
+
+**1a. Re-ran the programmer's own `expansion-card-battle-ui-smoke-test.js` fresh** —
+real two-account match, all 8 expansion cards force-set into the active client's real
+hand (same injection technique the original QA repro used), rendered via
+`buildCardNode()`, hover-equivalent tooltip check on the turn-1 lock, and a real DOM
+click-driven play of Crippling Blow through `onHandCardClick()`. **All pass, 0 page
+errors**, correct cost/name/type/text for all 8, correct lock tooltip only on Attack
+cards, Crippling Blow's click-driven play landed its 8 damage and granted Weaken 1
+end-to-end.
+
+**1b. Independently written natural-draw pipeline repro** (this session's own script,
+not the programmer's) — goes further than either the original report's repro or the
+programmer's own test, which both directly inject cards into `AL.state.player.hand`.
+This one uses **zero state injection**: real signup → a DB-level ownership grant
+(`UPDATE accounts SET expansion_cards = ...`, same test-setup convention
+`shop-ui-smoke-test.js` already uses for `ink_balance` — exactly what 24 successful
+real pulls would produce) → a real `PUT /api/decks/1` (server-validated, the actual
+deck-editor route) saving a real 30-card deck (all 24 owned expansion-card copies + 6
+core cards) → a real room create/join/match-start, letting the real, untouched
+`shuffle()`/opening-draw do its own thing → a real hover (Playwright `page.hover()`,
+reading the DOM node's actual `title` attribute, not a `page.evaluate()` shortcut).
+
+```
+Alice's real opening hand (real shuffle, no injection):
+["strike","cripplingBlow","overextend","steadyBreath","opportunist"]
+  PASS  Alice's real opening hand naturally contains at least 1 expansion card via
+        the real shuffle/draw pipeline, no state injection at all (got 4:
+        ["cripplingBlow","overextend","steadyBreath","opportunist"])
+  PASS  the real battle screen actually rendered the full real hand with no crash
+        (hand=5, rendered .card nodes=5)
+  PASS  still no uncaught page errors after the natural render of a hand containing
+        real expansion cards
+  hovered cripplingBlow (index 1), title attribute: ""
+  PASS  hovering the naturally-drawn expansion card doesn't crash and exposes a real
+        title attribute
+ALL PASS
+```
+
+**1c. Adversarial re-scan for any OTHER raw `CARD_DEFS[cardId]` lookup the fix might
+have missed** (not just the 3 named sites): `grep -rn "CARD_DEFS\b" js/*.js` across
+every client file (`api.js`, `auth.js`, `battle.js`, `config.js`, `data.js`, `deck.js`,
+`history.js`, `main.js`, `match.js`, `screens.js`, `shop.js`, `state.js`, `ui.js`,
+`ws.js`) — the only remaining matches are comments and `data.js`'s own `const
+CARD_DEFS = {...}` definition / `cardDefById()`'s implementation. **Zero raw
+`CARD_DEFS[id]` lookups left anywhere in the client.** `js/battle.js`, `js/history.js`,
+`js/main.js`, `js/match.js`, `js/screens.js` don't reference `CARD_DEFS` at all.
+
+### Finding 2 re-check: Ink double-award race — fixed, verified on all 3 paths + a cross-path race
+
+**2a. Re-ran the programmer's own `report-result-race-smoke-test.js` fresh** — 5
+iterations of the exact original repro (both clients' `report_result` sent
+back-to-back, no `await` between sends). All 5 iterations: exactly 1 Ink credit and
+exactly 1 `match_history` row per account per match. **All pass.**
+
+**2b. Independently written follow-up** (this session's own script, 3 new scenarios,
+none copied from the programmer's tests) specifically targeting the task's ask —
+verify `finalizeForfeit`/`finalizeVoidMatch` are *actually* guarded by the same
+`rooms.claimResult()` flag, not assumed from reading the diff:
+
+- **Scenario 1 — `finalizeForfeit` racing itself** (manual `claim_forfeit` vs the
+  server's own auto-forfeit grace timer, same room): `PVP_DISCONNECT_GRACE_MS` and
+  `PVP_CLAIM_FORFEIT_FLOOR_MS` both set to 400ms (same value, same origin — Bob's
+  disconnect) so both triggers fire within a few ms of each other. Ran 6 iterations.
+  **The winning path genuinely alternated** (`forfeit_claimed`,
+  `disconnect_timeout`, `forfeit_claimed`, `disconnect_timeout`, `forfeit_claimed`,
+  `disconnect_timeout`) — direct evidence the two triggers were actually contesting
+  the same room in real time, not one deterministically winning every time. **Every
+  iteration: exactly 1 Ink credit (+15, cumulative correct) and exactly 1
+  `match_history` row per account.** All pass.
+- **Scenario 2 — cross-path race: `report_result` vs the disconnect auto-forfeit
+  timer** (a plausible real scenario: Bob's connection drops for an unrelated reason
+  at almost the exact moment Alice's client independently detects HP hit 0 and
+  reports her own result). Same 400ms window, 6 iterations. **Outcomes genuinely
+  mixed** (`disconnect_timeout` ×4, `client_reported` ×2) — confirms
+  `rooms.claimResult()` is the *same shared per-room flag* guarding `onReportResult`
+  AND `finalizeForfeit`, not two separately-scoped guards that happen to coincidentally
+  both work. **Every iteration: exactly 1 Ink credit and exactly 1 `match_history` row
+  per account, regardless of which path won.** All pass.
+- **Scenario 3 — `finalizeVoidMatch` racing itself** (genuinely simultaneous
+  double-disconnect, both sockets closed back-to-back with the same short grace
+  window, 5 iterations, on top of the already-passing `double-disconnect-smoke-test.js`
+  Scenario A): **exactly 1 `void` row per account and exactly 0 Ink awarded, every
+  iteration.** All pass.
+
+```
+Scenario 1 reasons across 6 iterations:
+["forfeit_claimed","disconnect_timeout","forfeit_claimed","disconnect_timeout",
+ "forfeit_claimed","disconnect_timeout"]
+Scenario 2 reasons across 6 iterations:
+["disconnect_timeout","disconnect_timeout","client_reported","client_reported",
+ "disconnect_timeout","disconnect_timeout"]
+```
+
+The programmer's claim that all 3 match-resolution paths are guarded by the same
+`claimResult()` flag is **confirmed correct**, not just plausible from the diff.
+
+### Finding 3 re-check: Weaken decay off-by-one — fixed, including multi-stack/self-cast/forced-timeout paths
+
+Independent `vm`-harness script against the exact, unmodified `js/state.js`/
+`js/data.js` (same technique this repo already treats as sound for pure rules-engine
+verification — the programmer's own `weaken-status-test.js` uses it too). All repros
+use real cards via `applyRemoteAction({type:'playCard', cardId:...})`/`selectCard()`/
+`targetOpponent()`, not raw `state.player.weaken` mutation, except where isolating a
+specific mechanic required it.
+
+- **Repro A (Crippling Blow, Weaken 1):** granted turn N−1 (opponent's turn), still
+  **active and reduces damage** on the granted-to side's very next turn
+  (floor(6×0.75)=4, confirmed), decays to 0 only at the end of *that* turn. Exactly 1
+  effective turn, as the spec requires.
+- **Repro B (Crushing Curse, Weaken 3):** exactly **3** reduced-damage turns before
+  running out (not 2, not 4), floors at 0 afterward, never negative.
+- **Repro C (Overextend, self-granted Weaken 2, cast mid the caster's own turn):**
+  exactly **2** effective turns (this turn + 1 more), correctly floors at 0 after.
+- **Repro D (server-forced timeout, NOT manual End Turn):** `reconcileOpponentTurnStart()`
+  (the function `js/battle.js` calls when the server's `turn_started` broadcast says my
+  own turn timed out) correctly decays `state.player.weaken` — the decay logic lives
+  inside `endTurn()`, which `reconcileOpponentTurnStart()` calls internally, so the
+  server-forced path gets the same correct decay as a manual End Turn click, not a
+  separate/missed code path.
+- **Repro E (frozen opponent, no real peer `endTurn` ever arrives):**
+  `reconcileMyTurnStart()` (fired purely by the server's `turn_started` broadcast, zero
+  peer messages) correctly decays `state.opponent.weaken` via `applyRemoteEndTurn()`.
+- **Repro F (double-invocation, both orderings):** real peer `endTurn` action AND the
+  server reconciliation fallback both landing for the *same* turn boundary, in both
+  arrival orders — decays exactly once either way, never twice, never negative. The
+  existing `applyRemoteEndTurn()` guard (`if (state.turn === 'player') return`) that
+  was already protecting against double turn-starts also correctly protects the new
+  decay logic riding along with it.
+
+```
+ALL PASS (Repro A-F, 20 assertions total)
+```
+
+Also cross-checked against the *unrelated* `frozen-client-turn-timeout-test.js`
+(re-run fresh as part of the full regression) — its "reconciliation-then-stale-endTurn"
+and "stale-endTurn-then-reconciliation" scenarios (mana/block, not Weaken-specific, but
+the exact same turn-boundary machinery Weaken's decay now rides on) both pass cleanly,
+consistent with Repro F above.
+
+### Bottom line for the CEO
+
+**Ship it.** All 3 Blockers from the original pass are genuinely fixed, re-derived
+independently rather than taken on the programmer's word — including the harder edge
+cases the task specifically asked to stress (natural draw pipeline with zero
+injection for Finding 1; a genuinely contested, outcome-alternating race across all 3
+match-resolution paths for Finding 2, not just `report_result`; multi-stack/
+self-cast/forced-timeout Weaken decay for Finding 3). No new regressions found. Full
+18-script suite green. The one still-open item is Finding 4 (Corrosive Aura on a
+fully-blocked 0-damage hit) — correctly left as a design-ambiguity flag, not a bug,
+same as the original pass; still needs a designer call but does not block shipping.
+
+### Files referenced (follow-up)
+
+- Commit re-checked: `f4a14b7` ("Fix 3 QA blockers: battle UI crash, Ink double-award
+  race, Weaken decay")
+- Finding 1: `/Users/jungjongchan/Desktop/company/js/ui.js` (3 fixed call sites, all
+  now using `cardDefById()`), adversarial re-scan across all of
+  `/Users/jungjongchan/Desktop/company/js/*.js`
+- Finding 2: `/Users/jungjongchan/Desktop/company/server/src/ws/rooms.js`
+  (`claimResult()`), `/Users/jungjongchan/Desktop/company/server/src/ws/server.js`
+  (`onReportResult`, `finalizeForfeit`, `finalizeVoidMatch`, all 3 now guarded)
+- Finding 3: `/Users/jungjongchan/Desktop/company/js/state.js` (`endTurn()`,
+  `applyRemoteEndTurn()`, `localTurnStart()`, `applyRemoteTurnStart()`,
+  `reconcileMyTurnStart()`, `reconcileOpponentTurnStart()`)
+- Programmer's own tests re-run fresh (all pass): the full 18-script suite listed at
+  the top of this section
+- Independent follow-up scripts (this session's scratchpad, not part of the repo):
+  `weaken-followup.js`, `expansion-card-natural-draw-repro.js`,
+  `forfeit-void-race-followup.js`
+- `server/.env` re-confirmed pointing at local Postgres (`neoncore_dev`) before any
+  testing began.
