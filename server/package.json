@@ -15,7 +15,8 @@
     "room-list-smoke-test": "node scripts/room-list-smoke-test.js",
     "pvp-smoke-test": "node scripts/pvp-smoke-test.js",
     "deck-size-relay-smoke-test": "node scripts/deck-size-relay-smoke-test.js",
-    "double-disconnect-smoke-test": "node scripts/double-disconnect-smoke-test.js"
+    "double-disconnect-smoke-test": "node scripts/double-disconnect-smoke-test.js",
+    "pull-smoke-test": "node scripts/pull-smoke-test.js"
   },
   "dependencies": {
     "argon2": "^0.41.1",
