@@ -23,9 +23,18 @@ const Deck = (() => {
   // object whose keys are already in GDD §6.2 order; grouping by type with
   // a stable sort preserves that relative order within each group, which is
   // exactly the mockup's Attack(6)/Skill(5)/Power(3) sequence.
+  //
+  // Expansion pool (docs/design/card-shop-currency-proposal.md §7, Phase 3):
+  // "보유하지 않은 확장 카드도 풀 그리드에 그대로 노출한다... 별도 섹션으로
+  // 분리하지 않는다" -- concatenated into the SAME id list before sorting
+  // (not appended as a separate section afterward), so expansion cards land
+  // interleaved into their type group alongside core cards rather than
+  // forming a visually distinct trailing block. cardDefById() (js/data.js)
+  // is the shared CARD_DEFS-then-EXPANSION_CARD_DEFS lookup used everywhere
+  // below a raw `CARD_DEFS[id]` used to appear.
   const TYPE_ORDER = { attack: 0, skill: 1, power: 2 };
-  const CARD_POOL_ORDER = Object.keys(CARD_DEFS).sort(
-    (a, b) => TYPE_ORDER[CARD_DEFS[a].type] - TYPE_ORDER[CARD_DEFS[b].type]
+  const CARD_POOL_ORDER = [...Object.keys(CARD_DEFS), ...Object.keys(EXPANSION_CARD_DEFS)].sort(
+    (a, b) => TYPE_ORDER[cardDefById(a).type] - TYPE_ORDER[cardDefById(b).type]
   );
 
   const el = {};
@@ -33,6 +42,15 @@ const Deck = (() => {
     slots: [null, null, null], // index 0 = slot 1, ...
     editing: null, // { slot, name, cards: {cardId: count} } while the editor screen is open
     loadError: null,
+    // Expansion-pool ownership (docs/design/card-shop-currency-proposal.md
+    // §7): { cardId: ownedCount }, fetched via API.economy.get() whenever the
+    // editor opens (js/api.js's GET /api/economy, Phase 2). Empty until the
+    // first fetch resolves -- renderPoolGrid() below treats "not yet loaded"
+    // and "loaded, owns 0" identically (both render every expansion card
+    // locked), which is the correct default: better to briefly show cards as
+    // locked while the real ownership loads than to briefly show them as
+    // falsely unlocked/clickable.
+    expansionOwned: {},
   };
 
   let nameSaveTimer = null;
@@ -80,7 +98,7 @@ const Deck = (() => {
   // exported. Kept deliberately minimal (no selection/afford state -- the
   // pool card is never "selected" the way a hand card is).
   function buildPoolCardNode(cardId) {
-    const card = CARD_DEFS[cardId];
+    const card = cardDefById(cardId);
     const node = document.createElement('div');
     node.className = `card type-${card.type}`;
     node.innerHTML = `
@@ -263,7 +281,15 @@ const Deck = (() => {
   }
 
   // ---- editor screen (§5.5) ------------------------------------------------
-  function openEditor(slot) {
+  // Async (unlike most of this module's screen-entry functions apart from
+  // showSlots) because it needs the account's expansion-card ownership
+  // (§7) to render the pool grid's locked/owned states correctly -- see
+  // state.expansionOwned's doc comment above. Not awaited by its callers
+  // (edit-button click handler, createNewDeck) -- same fire-and-forget shape
+  // showSlots() already uses; the editor screen shows immediately with
+  // whatever ownership is currently cached (defaults to "nothing owned" the
+  // very first time), then re-renders once the fetch resolves.
+  async function openEditor(slot) {
     const existing = state.slots[slot - 1];
     state.editing = {
       slot,
@@ -274,6 +300,21 @@ const Deck = (() => {
     setEditorError(null);
     renderEditor();
     el.editorNameInput.focus();
+
+    try {
+      const economy = await API.economy.get();
+      state.expansionOwned = economy.expansionCards || {};
+    } catch (err) {
+      // Ownership fetch failing shouldn't trap the player out of editing
+      // entirely -- fall back to "nothing owned" (every expansion card
+      // renders locked, same as a fresh account) rather than throwing.
+      // Core-pool cards are completely unaffected either way.
+      state.expansionOwned = {};
+    }
+    // The player could have already closed the editor (onDone) or switched
+    // to a different slot before this resolves -- only re-render if we're
+    // still looking at the same slot's editor.
+    if (state.editing && state.editing.slot === slot) renderEditor();
   }
 
   function setEditorError(message) {
@@ -302,23 +343,64 @@ const Deck = (() => {
     renderDeckList(editing.cards);
   }
 
+  // Expansion-pool add cap (docs/design/card-shop-currency-proposal.md
+  // §2.2/§7): a locked/partially-owned expansion card can only be added up
+  // to min(3, owned-count) times -- 0 owned means the effective cap is 0
+  // (fully locked). Core-pool cards are always capped at the flat
+  // MAX_COPIES_PER_CARD, unaffected by ownership. Shared by renderPoolGrid()
+  // (visual state) and addCard() (the actual click-time enforcement) so the
+  // two can never disagree about what's clickable.
+  function poolCardCap(cardId) {
+    if (!EXPANSION_CARD_DEFS[cardId]) return MAX_COPIES_PER_CARD;
+    const owned = state.expansionOwned[cardId] || 0;
+    return Math.min(MAX_COPIES_PER_CARD, owned);
+  }
+
   function renderPoolGrid(cards, total) {
     el.poolGrid.innerHTML = '';
     CARD_POOL_ORDER.forEach((cardId) => {
-      const card = CARD_DEFS[cardId];
+      const card = cardDefById(cardId);
       const count = cards[cardId] || 0;
-      const maxedOut = count >= MAX_COPIES_PER_CARD || total >= DECK_MAX_SIZE;
+      const cap = poolCardCap(cardId);
+      // "아예 하나도 없어서 못 넣음" (§7) -- distinct from the existing
+      // "다 채워서 더 못 넣음" (maxed) state below. Only possible for
+      // expansion cards; core cards always have cap === MAX_COPIES_PER_CARD.
+      const locked = !!EXPANSION_CARD_DEFS[cardId] && cap === 0;
+      const maxedOut = locked || count >= cap || total >= DECK_MAX_SIZE;
 
       const wrap = document.createElement('div');
-      wrap.className = 'pool-card-wrap' + (maxedOut ? ' maxed' : '');
+      wrap.className = 'pool-card-wrap' + (locked ? ' locked' : (maxedOut ? ' maxed' : ''));
       wrap.appendChild(buildPoolCardNode(cardId));
 
-      const badge = document.createElement('span');
-      badge.className = 'pool-count-badge' + (count >= MAX_COPIES_PER_CARD ? ' full' : '');
-      badge.style.setProperty('--card-type-color', `var(${typeColorVar(card.type)})`);
-      badge.textContent = `${count}/${MAX_COPIES_PER_CARD}`;
-      wrap.appendChild(badge);
+      if (locked) {
+        // §7: "배지를 0/3 숫자 대신 자물쇠 아이콘으로" -- reuses the
+        // icon-lock symbol already added to assets/icons.svg (auth screen's
+        // password field). No dedicated "locked expansion card tile" art
+        // pass exists yet (checked art-direction.md/assets/mockups -- only
+        // the generic maxed-tile treatment is specced there) -- this reuses
+        // that existing desaturation pattern at a heavier strength (see
+        // css/pvp-components.css's `.pool-card-wrap.locked`) as an explicit
+        // placeholder pending a dedicated art brief, per the task note.
+        const lockBadge = document.createElement('span');
+        lockBadge.className = 'pool-lock-badge';
+        lockBadge.innerHTML = '<svg><use href="#icon-lock"></use></svg>';
+        wrap.appendChild(lockBadge);
+        // §7: "마우스오버 또는 롱프레스 시 짧은 툴팁" -- reuses the exact
+        // native `title` attribute pattern js/ui.js's firstTurnAttackLock
+        // tooltip already established (see that file's buildCardNode).
+        wrap.title = '상점에서 구매 가능';
+      } else {
+        const badge = document.createElement('span');
+        badge.className = 'pool-count-badge' + (count >= cap ? ' full' : '');
+        badge.style.setProperty('--card-type-color', `var(${typeColorVar(card.type)})`);
+        badge.textContent = `${count}/${MAX_COPIES_PER_CARD}`;
+        wrap.appendChild(badge);
+      }
 
+      // §7: "잠긴 타일을 클릭해도 덱에 추가되지 않으며 토스트/흔들림 같은
+      // 별도 피드백은 없음" -- same no-listener-at-all pattern the existing
+      // maxedOut case already uses (no click handler bound is itself the
+      // "inert" behavior, nothing extra needed for the locked case).
       if (!maxedOut) {
         wrap.addEventListener('click', () => addCard(cardId));
       }
@@ -337,7 +419,7 @@ const Deck = (() => {
       return;
     }
     ids.forEach((cardId) => {
-      const card = CARD_DEFS[cardId];
+      const card = cardDefById(cardId);
       const qty = cards[cardId];
       const row = document.createElement('div');
       row.className = 'deck-list-row';
@@ -376,7 +458,12 @@ const Deck = (() => {
     const editing = state.editing;
     const count = editing.cards[cardId] || 0;
     const total = deckTotal(editing.cards);
-    if (count >= MAX_COPIES_PER_CARD || total >= DECK_MAX_SIZE) return; // defense in depth; UI already disables this tile
+    // poolCardCap() folds in the expansion-pool ownership cap (§2.2/§7) on
+    // top of the flat MAX_COPIES_PER_CARD -- defense in depth either way;
+    // the UI already disables this tile's click listener in both cases (see
+    // renderPoolGrid()'s `maxedOut`/`locked`), and the server independently
+    // re-enforces ownership on save (routes/decks.js's validateCards()).
+    if (count >= poolCardCap(cardId) || total >= DECK_MAX_SIZE) return;
 
     const prevCards = { ...editing.cards };
     editing.cards[cardId] = count + 1;

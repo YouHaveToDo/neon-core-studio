@@ -3,6 +3,7 @@ const { pool } = require('../db');
 const { requireAuth } = require('../middleware/requireAuth');
 const {
   isValidCardId,
+  isExpansionCardId,
   DECK_MIN_SIZE,
   DECK_MAX_SIZE,
   MAX_COPIES_PER_CARD,
@@ -37,7 +38,16 @@ function defaultDeckName(slot) {
 // Validates + normalizes the `cards` map from a request body into a plain
 // { cardId: count } object with all-positive integer counts. Returns
 // { ok: true, cards } or { ok: false, error }.
-function validateCards(rawCards) {
+//
+// `ownedExpansionCards` (docs/design/card-shop-currency-proposal.md §2.2/§7,
+// Phase 3 of the card-shop-currency milestone): the calling account's
+// `accounts.expansion_cards` map ({ cardId: ownedCount }), or {} if the
+// caller didn't need to fetch it (e.g. an empty `cards` payload). Only
+// consulted for ids `isExpansionCardId()` recognizes -- core-pool ids are
+// completely unaffected by this parameter, per spec §5.1 "전체 오픈" (still
+// flat max-3, no ownership check).
+function validateCards(rawCards, ownedExpansionCards) {
+  ownedExpansionCards = ownedExpansionCards || {};
   if (rawCards === undefined || rawCards === null) return { ok: true, cards: {} };
   if (typeof rawCards !== 'object' || Array.isArray(rawCards)) {
     return { ok: false, error: 'cards는 카드ID -> 매수 형식의 객체여야 합니다' };
@@ -54,6 +64,21 @@ function validateCards(rawCards) {
     }
     if (count > MAX_COPIES_PER_CARD) {
       return { ok: false, error: `카드 1종당 최대 ${MAX_COPIES_PER_CARD}장까지 가능합니다 (${cardId})` };
+    }
+    // Ownership cap for expansion-pool cards only (§2.2/§7): a deck can
+    // include at most min(3, owned-count) copies of an expansion card. The
+    // flat max-3 check above already enforces the "3" half of that min --
+    // this is the additional, STRICTER cap that only bites when the account
+    // owns fewer than 3 copies (including the "owns 0" case, i.e. the card
+    // is entirely locked). Core-pool cards never reach this branch.
+    if (isExpansionCardId(cardId)) {
+      const owned = ownedExpansionCards[cardId] || 0;
+      if (count > owned) {
+        return {
+          ok: false,
+          error: `보유하지 않았거나 보유 매수를 초과한 카드입니다: ${cardId} (보유 ${owned}장, 요청 ${count}장)`,
+        };
+      }
     }
     cards[cardId] = count;
   }
@@ -124,7 +149,20 @@ router.put('/:slot', async (req, res) => {
   }
 
   const { name: rawName, cards: rawCards } = req.body || {};
-  const cardsResult = validateCards(rawCards);
+
+  // Only fetch the account's expansion-card ownership if the payload
+  // actually references any card ids at all (the common empty-`cards: {}`
+  // case, e.g. creating a brand-new slot, never needs it) -- avoids a wasted
+  // round-trip on every save. validateCards() itself defends against a
+  // malformed rawCards shape independently, so this check only needs to be
+  // a cheap pre-filter, not authoritative.
+  let ownedExpansionCards = {};
+  if (rawCards && typeof rawCards === 'object' && !Array.isArray(rawCards) && Object.keys(rawCards).length > 0) {
+    const acctResult = await pool.query('SELECT expansion_cards FROM accounts WHERE id = $1', [req.account.id]);
+    ownedExpansionCards = (acctResult.rows[0] && acctResult.rows[0].expansion_cards) || {};
+  }
+
+  const cardsResult = validateCards(rawCards, ownedExpansionCards);
   if (!cardsResult.ok) {
     return res.status(400).json({ error: cardsResult.error });
   }

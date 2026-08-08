@@ -83,6 +83,21 @@
 .pool-count-badge { position: absolute; top: -7px; right: -7px; min-width: 26px; text-align: center; background: var(--bg-inset); border: 1px solid var(--line); border-radius: 10px; padding: 2px 6px; font-family: var(--font-mono); font-size: 10px; color: var(--ink-dim); z-index: 3; box-shadow: 0 2px 5px rgba(0,0,0,0.4); }
 .pool-count-badge.full { background: var(--card-type-color, var(--gold)); color: var(--bg); border-color: transparent; font-weight: bold; }
 
+/* Locked expansion-pool card tile (docs/design/card-shop-currency-proposal.md
+   §7, Phase 3 of the card-shop-currency milestone): "0 하나도 없어서 못
+   넣음" -- deliberately a DIFFERENT, heavier treatment than .maxed above
+   ("다 채워서 더 못 넣음") so the two read as distinct at a glance, per that
+   section's explicit instruction. No dedicated art pass exists yet for this
+   state (checked art-direction.md + assets/mockups -- neither has a "locked
+   card tile" spec) -- this reuses the existing maxed-tile desaturation
+   pattern at a heavier strength (lower opacity + full grayscale) as an
+   explicit placeholder, flagged in the task report as still needing a real
+   art pass. */
+.pool-card-wrap.locked .card { opacity: 0.28; filter: grayscale(1); cursor: default; }
+.pool-card-wrap.locked .card:hover { transform: scale(0.8182); }
+.pool-lock-badge { position: absolute; top: -7px; right: -7px; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; background: var(--bg-inset); border: 1px solid var(--line); border-radius: 50%; color: var(--ink-faint); z-index: 3; box-shadow: 0 2px 5px rgba(0,0,0,0.4); }
+.pool-lock-badge svg { width: 13px; height: 13px; }
+
 /* Deck list = the "result" area — deliberately a compact list, not a card
    grid, so pool vs. deck read as two different silhouettes at a glance. */
 .deck-list { background: var(--bg-inset); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }

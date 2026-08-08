@@ -72,7 +72,13 @@ const AL = (() => {
       // its interaction with Bloodlust. Public info, mirrored the same way
       // block is (see applyWeaken()'s doc comment for why).
       weaken: 0,
-      powers: { ironSkin: 0, bloodlust: 0, hoarder: 0 },
+      // corrosiveAura (docs/design/card-shop-currency-proposal.md §4,
+      // Phase 3): same accumulating-stack-count shape as ironSkin/bloodlust/
+      // hoarder above (each additional copy played compounds the per-attack
+      // Weaken payload, exactly like extra Bloodlust copies compound the
+      // damage bonus) -- see applyCardEffect()'s post-switch Corrosive Aura
+      // check below for how the count is consumed.
+      powers: { ironSkin: 0, bloodlust: 0, hoarder: 0, corrosiveAura: 0 },
       masterDeck: [],
       drawPile: [],
       hand: [],
@@ -300,7 +306,11 @@ const AL = (() => {
     emit();
   }
 
-  function cardById(id) { return CARD_DEFS[id]; }
+  // cardDefById() (js/data.js) checks CARD_DEFS then EXPANSION_CARD_DEFS --
+  // see that function's doc comment for why the two pools are looked up
+  // through one shared helper rather than each caller re-deriving its own
+  // fallback (docs/design/card-shop-currency-proposal.md §4, Phase 3).
+  function cardById(id) { return cardDefById(id); }
 
   // ---- Local player's turn -------------------------------------------------
   function canPlay(handIndex) {
@@ -587,8 +597,83 @@ const AL = (() => {
       case 'hoarder':
         actor.powers.hoarder += 1;
         break;
+
+      // ---- Expansion pool (docs/design/card-shop-currency-proposal.md §4,
+      // Phase 3) -- all 8 built around Weaken (applyWeaken/
+      // applyWeakenToDamage above). Every Attack card below folds its base
+      // damage (+ card-specific conditional bonus, + attackBonus(actor) for
+      // Bloodlust) through applyWeakenToDamage() BEFORE applyDamage(), same
+      // 5-step order and same pattern as the 6 original Attack cards above --
+      // Bloodlust is a generic "this actor's next Attack card" bonus with no
+      // core/expansion distinction in its own effect text, so it applies
+      // here identically.
+      case 'enfeeble':
+        // 0 base damage is intentional (§4.2: kept as type:'attack' so
+        // spec §6.3.1's first-turn attack-lock still gates it) -- still
+        // routed through applyWeakenToDamage/applyDamage for consistency
+        // even though the result is always 0.
+        applyDamage(target, applyWeakenToDamage(actor, 0 + attackBonus(actor)), false);
+        applyWeaken(target, 2);
+        break;
+      case 'cripplingBlow':
+        applyDamage(target, applyWeakenToDamage(actor, 8 + attackBonus(actor)), false);
+        applyWeaken(target, 1);
+        break;
+      case 'exploitWeakness': {
+        // Conditional bonus checked against the target's CURRENT Weaken
+        // stack at the moment this card resolves (before any Weaken this
+        // same card might grant -- it grants none) -- same "read target
+        // state, then deal damage" shape as Execute's HP-threshold check
+        // above.
+        const bonus = target.weaken > 0 ? 8 : 0;
+        applyDamage(target, applyWeakenToDamage(actor, 8 + bonus + attackBonus(actor)), false);
+        break;
+      }
+      case 'overextend':
+        // Damage is computed using the actor's Weaken stack AS IT STANDS
+        // RIGHT NOW (before this card's own self-Weaken grant below) -- a
+        // card doesn't retroactively weaken its own damage output.
+        applyDamage(target, applyWeakenToDamage(actor, 10 + attackBonus(actor)), false);
+        applyWeaken(actor, 2);
+        break;
+      case 'steadyBreath':
+        // "자신의 약화 스택을 전부 제거" -- a hard reset, not a decay-by-N
+        // grant, so this sets the stack directly rather than going through
+        // applyWeaken() (which only ever adds).
+        actor.weaken = 0;
+        applyBlock(actor, 3);
+        break;
+      case 'corrosiveAura':
+        actor.powers.corrosiveAura += 1;
+        break;
+      case 'crushingCurse':
+        applyDamage(target, applyWeakenToDamage(actor, 4 + attackBonus(actor)), false);
+        applyWeaken(target, 3);
+        break;
+      case 'opportunist':
+        drawCards(actor, 1);
+        if (target.weaken > 0) drawCards(actor, 1);
+        break;
+
       default:
         break;
+    }
+
+    // Corrosive Aura's passive trigger (§4's Corrosive Aura row: "이후
+    // Attack 카드로 데미지를 줄 때마다 상대에게 약화 1 부여") -- deliberately
+    // generic across EVERY Attack card the actor plays for the rest of the
+    // match once active, not just the 7 other expansion cards above (the
+    // effect text draws no such distinction, and §4.3's own playtest flag
+    // explicitly calls out this stacking with the pre-existing Bloodlust,
+    // implying it fires off ordinary Strikes/Heavy Slashes too). Fires once
+    // per card played, not once per hit (same convention Bloodlust/Iron Skin
+    // already use, see this file's header comment), for `corrosiveAura`
+    // stacks worth of Weaken each time (extra copies compound, mirroring how
+    // extra Bloodlust copies compound its damage bonus). Excludes Enfeeble,
+    // the only Attack card whose own damage is always exactly 0 by design --
+    // "deals damage" doesn't describe a card that deals none.
+    if (actor.powers.corrosiveAura > 0 && card.type === 'attack' && card.target === 'enemy' && card.id !== 'enfeeble') {
+      applyWeaken(target, actor.powers.corrosiveAura);
     }
   }
 

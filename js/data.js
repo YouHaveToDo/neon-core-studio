@@ -87,6 +87,77 @@ const REWARD_POOL = [
   'ironSkin', 'bloodlust', 'hoarder',
 ];
 
+// ---- Expansion pool (docs/design/card-shop-currency-proposal.md §4) ------
+// Phase 3 of the card-shop-currency milestone: the 8-card "expansion pool",
+// kept as its own object -- deliberately NOT merged into CARD_DEFS -- because
+// ownership rules differ between the two pools (§2.2): every CARD_DEFS entry
+// is free/unlimited for every account (spec-online-pvp.md §5.1, unchanged),
+// while an expansion card can only be put in a deck up to the number of
+// copies the account owns (`accounts.expansion_cards`, server/migrations/
+// 003_add_ink_and_expansion_cards.sql) -- there is currently no way to own
+// any (no shop/pull endpoint yet, Phase 4), so today every account's
+// deck-building view of this pool is "0 owned, all locked" until that phase
+// ships. Same {id,name,cost,type,target,text} shape as CARD_DEFS so every
+// existing card-rendering helper works against either pool via
+// cardDefById() below.
+//
+// All 8 are built around the new Weaken status effect (js/state.js
+// §3/applyWeaken/applyWeakenToDamage) -- see the design doc §4's table for
+// the exact effect text and design rationale per card. §4.2 of that doc
+// requires every card here that targets the opponent to be `type: 'attack'`
+// (never `target: 'enemy'` Skill/Power) so spec §6.3.1's first-turn
+// attack-lock keeps working unmodified against the expansion pool too --
+// Enfeeble (0 damage) is deliberately `type: 'attack'` for exactly this
+// reason, not a data error.
+const EXPANSION_CARD_DEFS = {
+  enfeeble: {
+    id: 'enfeeble', name: 'Enfeeble', cost: 1, type: 'attack', target: 'enemy',
+    text: '0 데미지, 상대에게 약화 2 부여',
+  },
+  cripplingBlow: {
+    id: 'cripplingBlow', name: 'Crippling Blow', cost: 2, type: 'attack', target: 'enemy',
+    text: '8 데미지, 상대에게 약화 1 부여',
+  },
+  exploitWeakness: {
+    id: 'exploitWeakness', name: 'Exploit Weakness', cost: 2, type: 'attack', target: 'enemy',
+    text: '8 데미지, 상대가 이미 약화 상태면 16 데미지',
+  },
+  overextend: {
+    id: 'overextend', name: 'Overextend', cost: 1, type: 'attack', target: 'enemy',
+    text: '10 데미지, 자신에게 약화 2 부여',
+  },
+  steadyBreath: {
+    id: 'steadyBreath', name: 'Steady Breath', cost: 1, type: 'skill', target: 'self',
+    text: '자신의 약화 스택을 전부 제거, 방어도 3 획득',
+  },
+  corrosiveAura: {
+    id: 'corrosiveAura', name: 'Corrosive Aura', cost: 2, type: 'power', target: 'self',
+    text: '이후 Attack 카드로 데미지를 줄 때마다 상대에게 약화 1 부여 (영구)',
+  },
+  crushingCurse: {
+    id: 'crushingCurse', name: 'Crushing Curse', cost: 2, type: 'attack', target: 'enemy',
+    text: '4 데미지, 상대에게 약화 3 부여',
+  },
+  opportunist: {
+    id: 'opportunist', name: 'Opportunist', cost: 1, type: 'skill', target: 'self',
+    text: '카드 1장 드로우, 상대가 약화 상태면 카드 1장 추가 드로우',
+  },
+};
+
+// Source list for the deck editor's expansion-pool tiles (mirrors
+// REWARD_POOL's role for the core pool) and for anything that needs "just
+// the ids" without walking EXPANSION_CARD_DEFS's own key order.
+const EXPANSION_POOL = [
+  'enfeeble', 'cripplingBlow', 'exploitWeakness', 'overextend',
+  'steadyBreath', 'corrosiveAura', 'crushingCurse', 'opportunist',
+];
+
+// Single shared lookup across BOTH pools -- js/state.js's cardById() and
+// js/deck.js's pool/deck-list rendering all use this instead of each
+// re-deriving their own `CARD_DEFS[id] || EXPANSION_CARD_DEFS[id]` fallback
+// (and risking the two drifting apart if a third pool is ever added).
+function cardDefById(id) { return CARD_DEFS[id] || EXPANSION_CARD_DEFS[id]; }
+
 // NOTE: ENEMY_DEFS (scripted AI pattern data) and ROOM_SEQUENCE (dungeon-run
 // room list) were removed here — docs/design/spec-online-pvp.md §2 kills
 // both explicitly ("적(enemy) 스크립트 패턴 시스템", "던전 런 구조"). The

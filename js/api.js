@@ -134,6 +134,14 @@ const API = {
     // Most recent first, capped at 100 server-side (spec §6.5).
     list: () => apiRequest('/api/match-history'),
   },
+  economy: {
+    // -> { inkBalance: number, expansionCards: {cardId: count} } (server/src/
+    // routes/economy.js, Phase 2 of docs/design/card-shop-currency-
+    // proposal.md). Used by js/deck.js's pool-grid rendering (Phase 3, §7) to
+    // know which expansion cards are locked/owned/owned-and-maxed -- no
+    // currency display anywhere else yet (that's later UI scope).
+    get: () => apiRequest('/api/economy'),
+  },
   rooms: {
     // -> { rooms: [ {id, hostDisplayName, createdAt: <ms epoch>}, ... ] }
     // Open (waiting-for-second-player) rooms, newest first -- spec §6.2.1-
