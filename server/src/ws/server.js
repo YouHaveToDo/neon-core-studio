@@ -453,10 +453,23 @@ async function onReportResult(ws, msg) {
   // immediately -- consistent with the existing "no server-side game-rule
   // validation, trust the client" boundary already established for this
   // relay (spec §6.3 RNG authority, the report_result doc comment in
-  // protocol.js). If the other client also sends its own report_result a
-  // moment later, the room is already gone and it just gets a harmless
-  // NOT_IN_ROOM error -- no double-write, no cross-check deadlock if the two
-  // reports ever disagreed.
+  // protocol.js).
+  //
+  // QA (docs/qa/card-shop-currency-milestone.md finding #2): "the room is
+  // already gone by the time the second report_result arrives" is only true
+  // if that second message arrives AFTER endRoomAndClearSockets runs below,
+  // which happens strictly after the `await recordMatchResult(...)` DB round
+  // trip -- two near-simultaneous report_results (the normal case per spec
+  // §6.4: both clients detect HP hitting 0 at the same instant and each
+  // report their own side) can both reach here, both find the room, and both
+  // call recordMatchResult, double-awarding Ink. rooms.claimResult() is a
+  // synchronous check-and-set (same idempotency pattern as startMatch()
+  // above) called BEFORE the first await, so only the first of two racing
+  // calls proceeds -- the second is a harmless no-op, not an error, since
+  // arriving second here is the expected/normal outcome of the race, not a
+  // client misbehaving.
+  if (!rooms.claimResult(room)) return;
+
   const winner = msg.result === 'win' ? reporter : opponent;
   const loser = msg.result === 'win' ? opponent : reporter;
 
@@ -508,8 +521,17 @@ function onClaimForfeit(ws) {
   finalizeForfeit(room, { winner: claimer, loser: opponent, reason: 'forfeit_claimed' });
 }
 
-/** Shared by claim_forfeit and the 45s auto-forfeit grace timeout. */
+/**
+ * Shared by claim_forfeit and the 45s auto-forfeit grace timeout. Also a
+ * potential racer against onReportResult / finalizeVoidMatch for the same
+ * room (e.g. a claim_forfeit landing right as the other side's
+ * report_result is also being processed) -- rooms.claimResult() (see its
+ * doc comment, and the identical guard in onReportResult above) ensures
+ * only the first of any of these match-end paths actually resolves the
+ * room; a later one is a no-op, not an error.
+ */
 async function finalizeForfeit(room, { winner, loser, reason }) {
+  if (!rooms.claimResult(room)) return;
   clearRoomTimers(room);
 
   try {
@@ -583,8 +605,12 @@ function onDisconnectGraceExpired(room, accountId) {
  * are disconnected at this point, so there's nothing to notify; the
  * match_history row is the durable record either player will see once they
  * next log in and check their match history (spec §6.5).
+ *
+ * Same rooms.claimResult() guard as onReportResult/finalizeForfeit -- see
+ * finalizeForfeit's doc comment.
  */
 async function finalizeVoidMatch(room, playerA, playerB) {
+  if (!rooms.claimResult(room)) return;
   clearRoomTimers(room);
 
   try {

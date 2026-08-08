@@ -52,6 +52,12 @@ function createRoom(creator) {
     //   { activeAccountId, deadline: null, remainingMs: <ms left>, timeoutHandle: null }
     turn: null,
     matchStarted: false,
+    // Set true by claimResult() the instant any match-end path (report_result,
+    // claim_forfeit/auto-forfeit, double-disconnect void) starts resolving
+    // this room -- see claimResult()'s own doc comment for why this needs to
+    // be a synchronous flag rather than relying on the room being deleted
+    // only after the DB write finishes.
+    resultClaimed: false,
   };
   rooms.set(code, room);
   socketMeta.set(creator.ws, { code, accountId: creator.accountId });
@@ -153,6 +159,31 @@ function startMatch(room, firstAccountId) {
 }
 
 /**
+ * Claims the right to resolve (record + tear down) this room's match result.
+ * Returns true exactly once per room -- every subsequent call (whether from
+ * a second `report_result`, a racing `claim_forfeit`, or a second grace-
+ * timer expiry) returns false and should be treated as an idempotent no-op,
+ * same convention as startMatch() above.
+ *
+ * This exists because `rooms.getRoom(code)` staying non-null is NOT by
+ * itself a safe "hasn't been resolved yet" check: the room is only deleted
+ * (via endRoom()) strictly AFTER the async recordMatchResult()/
+ * recordVoidMatch() DB write finishes. Two near-simultaneous match-end
+ * events (e.g. both clients' report_result for the same match, spec §6.4 --
+ * or, equivalently, both sides' disconnect-grace timers expiring close
+ * together) can both pass a `getRoom` check and both start their own DB
+ * write before either finishes tearing the room down, double-recording the
+ * match and double-awarding Ink. claimResult() must be called synchronously
+ * -- before any `await` -- so the check-and-set can't be interleaved by the
+ * event loop the way the old "room still exists" check could be.
+ */
+function claimResult(room) {
+  if (room.resultClaimed) return false;
+  room.resultClaimed = true;
+  return true;
+}
+
+/**
  * Mark the player owning `ws` as disconnected (socket closed).
  *
  * A SOLO room (nobody else ever joined -- e.g. a host who closed the tab
@@ -216,4 +247,5 @@ module.exports = {
   deleteRoom,
   endRoom,
   startMatch,
+  claimResult,
 };

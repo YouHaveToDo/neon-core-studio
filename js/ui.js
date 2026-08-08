@@ -183,7 +183,7 @@ const UI = (() => {
   }
 
   function buildCardNode(cardId, opts) {
-    const card = CARD_DEFS[cardId];
+    const card = cardDefById(cardId);
     const node = document.createElement('div');
     node.className = `card type-${card.type}`;
     node.innerHTML = `
@@ -244,7 +244,7 @@ const UI = (() => {
       // including once the lock itself is gone, so a reused node from a
       // still-locked turn never keeps a stale tooltip.
       const lockedThisTurn = !affordable && state.firstTurnAttackLock
-        && CARD_DEFS[cardId].type === 'attack';
+        && cardDefById(cardId).type === 'attack';
       node.title = lockedThisTurn ? '첫 턴에는 공격 카드를 낼 수 없습니다' : '';
       // appendChild on a node already in the DOM just relocates it — this
       // walks the whole hand in array order so the final DOM order always
@@ -275,7 +275,7 @@ const UI = (() => {
     const state = AL.state;
     const cardId = state.player.hand[index];
     if (!cardId) return;
-    const card = CARD_DEFS[cardId];
+    const card = cardDefById(cardId);
 
     if (card.target === 'self') {
       if (node) { node.classList.remove('card-draw-in'); node.classList.add('playing'); }

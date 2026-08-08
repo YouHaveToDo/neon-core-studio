@@ -65,9 +65,12 @@ const AL = (() => {
       // the card-shop-currency milestone): integer stack counter, tracked
       // per side exactly like `block` above (accumulates without cap,
       // decays by 1 at the end of THIS side's own turn -- see the decay
-      // hook alongside the block reset in localTurnStart()/
-      // applyRemoteTurnStart() below). While >=1, every Attack card THIS
-      // side plays has its final damage reduced 25% (floored) -- see
+      // hook in endTurn()/applyRemoteEndTurn() below, fixed 2026-08 per
+      // docs/qa/card-shop-currency-milestone.md finding #3: decay must fire
+      // when THIS side's own turn ENDS, after they've had the chance to act
+      // with the stack in effect, not when it starts). While >=1, every
+      // Attack card THIS side plays has its final damage reduced 25%
+      // (floored) -- see
       // applyWeakenToDamage()'s doc comment for the exact 5-step order and
       // its interaction with Bloodlust. Public info, mirrored the same way
       // block is (see applyWeaken()'s doc comment for why).
@@ -426,6 +429,21 @@ const AL = (() => {
   function endTurn() {
     if (state.turnBusy || state.turn !== 'player' || state.frozen) return;
     state.selected = null;
+    // Weaken decay (docs/design/card-shop-currency-proposal.md §3, fixed per
+    // docs/qa/card-shop-currency-milestone.md finding #3): decays here, at
+    // the moment the LOCAL player's own turn actually ends, not at the start
+    // of their NEXT turn (localTurnStart(), where this used to live). A
+    // stack granted during the opponent's preceding turn is still fully in
+    // effect for this entire turn's actions (checked at play() as
+    // `actor.weaken > 0`, which reads the pre-decay value up to this point)
+    // -- decrementing only now, after the turn is over, is what makes a
+    // 1-stack grant (e.g. Crippling Blow) actually deliver its one real
+    // effective turn of reduction instead of decaying before the weakened
+    // side ever gets to act on it. This function only ever runs once per
+    // real turn boundary (guarded by the `state.turn !== 'player'` check
+    // above, since state.turn flips to 'opponent' below), so no double-decay
+    // risk from reconcileOpponentTurnStart() also funneling through here.
+    if (state.player.weaken > 0) state.player.weaken -= 1;
     state.player.discardPile.push(...state.player.hand);
     state.player.hand = [];
     state.player.handKeys = [];
@@ -734,19 +752,14 @@ const AL = (() => {
       ? drawCount
       : PLAYER_START.drawPerTurn + state.opponent.powers.hoarder; // fallback only — see doc comment above
     state.opponent.block = 0;
-    // Weaken decay (docs/design/card-shop-currency-proposal.md §3: "자기
-    // 턴이 끝날 때마다... 스택이 1 감소, 0 미만으로는 내려가지 않음", same
-    // turn-boundary hook as the block reset just above). This function fires
-    // when the OPPONENT's own turn is starting again — i.e. their own
-    // preceding turn has just fully ended with nothing further able to
-    // change their stacks in between — so decaying `state.opponent.weaken`
-    // here is the OPPONENT's own turn-end decay, mirrored from their real
-    // client via the same 'turnStart' action their localTurnStart() already
-    // sends (no separate network message needed, same reasoning as
-    // applyWeaken()'s doc comment on public/mirrored visibility). Never
-    // decays `state.player.weaken` here — that only ever decays in
-    // localTurnStart() below, on the local player's OWN turn boundary.
-    if (state.opponent.weaken > 0) state.opponent.weaken -= 1;
+    // Weaken decay moved OUT of here (docs/qa/card-shop-currency-milestone.md
+    // finding #3) -- decaying `state.opponent.weaken` at the moment their
+    // turn STARTS (this function) decremented a stack before the opponent
+    // ever got to act on it that turn, a systematic off-by-one. It now
+    // decays in applyRemoteEndTurn() below instead, at the moment we learn
+    // the opponent's own PRECEDING turn actually ended (either via their
+    // real peer 'endTurn' action or reconcileMyTurnStart()'s server-driven
+    // fallback) -- see that function's doc comment.
     state.opponent.mana = state.opponent.maxMana;
     state.turn = 'opponent';
     state.turnBusy = false;
@@ -824,6 +837,18 @@ const AL = (() => {
   // reconciliation" cases both exercise.)
   function applyRemoteEndTurn() {
     if (state.turn === 'player') return; // this boundary was already applied by the other path -- no-op
+    // Weaken decay (docs/design/card-shop-currency-proposal.md §3, fixed
+    // per docs/qa/card-shop-currency-milestone.md finding #3): this is the
+    // moment we learn the OPPONENT's own turn has actually ended (their
+    // real 'endTurn' peer action, or the server-driven reconciliation
+    // fallback via reconcileMyTurnStart() -- either way, the same real-world
+    // boundary), so it's the correct place to decay `state.opponent.weaken`
+    // -- after they've had their whole turn to act with the stack in
+    // effect, not before (which is what decaying in applyRemoteTurnStart(),
+    // at THEIR turn's start, used to do). Guarded by the `state.turn ===
+    // 'player'` check above against the same double-invocation this
+    // function is already idempotency-guarded for, so no double-decay risk.
+    if (state.opponent.weaken > 0) state.opponent.weaken -= 1;
     state.opponent.discardPile.push(...state.opponent.hand.map(() => HIDDEN));
     state.opponent.hand = [];
     state.opponent.handKeys = [];
@@ -896,14 +921,12 @@ const AL = (() => {
   // own draw, which needs no network round-trip — see spec §6.3 step 2).
   function localTurnStart() {
     state.player.block = 0;
-    // Weaken decay — mirror image of the decay in applyRemoteTurnStart()
-    // above, same doc-comment reasoning: this function fires when the LOCAL
-    // player's own turn is starting again, which is the same turn-boundary
-    // hook the block reset just above already uses for "my own preceding
-    // turn has fully ended." Decays only `state.player.weaken`, never
-    // `state.opponent.weaken` — that decays on the opponent's own boundary
-    // in applyRemoteTurnStart(), not here.
-    if (state.player.weaken > 0) state.player.weaken -= 1;
+    // Weaken decay moved OUT of here (docs/qa/card-shop-currency-milestone.md
+    // finding #3) -- it now happens in endTurn(), at the moment the local
+    // player's own PRECEDING turn ended, not here at the start of their
+    // next one. See endTurn()'s doc comment for why the old timing here was
+    // a systematic off-by-one (decayed a stack before the weakened side ever
+    // got to act on it).
     state.player.mana = state.player.maxMana;
     state.selected = null;
     state.turn = 'player';

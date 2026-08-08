@@ -164,7 +164,19 @@ console.log('\n== Test C: Weaken order also holds with block present (steps 3 th
   assert(blockLeft === 0, `all 3 block consumed (got ${blockLeft} left)`);
 }
 
-console.log('\n== Test D: turn-end decay removes exactly 1 stack, on the WEAKENED character\'s own turn boundary, never the opponent\'s ==');
+console.log('\n== Test D: turn-END decay removes exactly 1 stack, on the WEAKENED character\'s own turn boundary, never the opponent\'s ==');
+// Fixed 2026-08 per docs/qa/card-shop-currency-milestone.md finding #3: this
+// test used to assert decay fires at the weakened side's own turn-START
+// boundary (localTurnStart()/applyRemoteTurnStart()) -- that was the actual
+// (buggy) behavior at the time the test was written, not the spec's literal
+// wording (§3.1: "-25% for this character's NEXT N turns", with decay
+// happening at "자기 턴이 끝날 때마다", i.e. when THEIR OWN turn ends). QA
+// caught that the old timing meant a stack decayed before the weakened side
+// ever got to act on it -- see Test F below for a real-number check of the
+// exact scenario this broke (Crippling Blow's Weaken 1 becoming a no-op).
+// This test now asserts decay at the corrected boundary: endTurn() (local
+// player's own turn ending) / applyRemoteEndTurn() (opponent's own turn
+// ending, learned via their peer action or server reconciliation).
 {
   const AL = freshBattle(loadAL());
   AL.state.player.weaken = 2;
@@ -173,39 +185,41 @@ console.log('\n== Test D: turn-end decay removes exactly 1 stack, on the WEAKENE
 
   AL.endTurn(); // player's own turn ends -> turn becomes 'opponent'
   assert(
-    AL.state.player.weaken === 2,
-    `player's Weaken is UNCHANGED right when their own turn ends -- decay fires at their own next turn-START boundary, not at endTurn() itself (got ${AL.state.player.weaken})`
+    AL.state.player.weaken === 1,
+    `player's Weaken decays by 1 (2 -> 1) the instant THEIR OWN turn ends (endTurn()), not at their next turn's start (got ${AL.state.player.weaken})`
+  );
+  assert(
+    AL.state.opponent.weaken === 3,
+    `opponent's Weaken is untouched by the player's own turn-end boundary (still 3) (got ${AL.state.opponent.weaken})`
   );
 
-  // The opponent's real client now starts ITS OWN turn -- this is the
-  // OPPONENT's own turn boundary, so only opponent.weaken should decay.
+  // The opponent's real client now starts ITS OWN turn -- no decay should
+  // happen here anymore (decay no longer lives in applyRemoteTurnStart()).
   AL.applyRemoteAction({ type: 'turnStart', drawCount: 0 });
   assert(
-    AL.state.opponent.weaken === 2,
-    `opponent's Weaken decays by 1 (3 -> 2) on the OPPONENT's own turn-start boundary (got ${AL.state.opponent.weaken})`
-  );
-  assert(
-    AL.state.player.weaken === 2,
-    `player's Weaken is untouched by the OPPONENT's turn boundary (still 2) -- decay never fires on the other side's boundary (got ${AL.state.player.weaken})`
+    AL.state.opponent.weaken === 3,
+    `opponent's Weaken is UNCHANGED right when their own turn starts -- decay fires at their own turn-END boundary, not at turn-start (got ${AL.state.opponent.weaken})`
   );
 
-  // Opponent ends their turn -> player's own turn starts again (localTurnStart()).
+  // Opponent ends their turn -> this IS the opponent's own turn-end
+  // boundary, so opponent.weaken should decay here (applyRemoteEndTurn()),
+  // and player's own turn starts (localTurnStart(), no decay there anymore).
   AL.applyRemoteAction({ type: 'endTurn' });
   assert(
-    AL.state.player.weaken === 1,
-    `player's Weaken decays by 1 (2 -> 1) on the PLAYER's own turn-start boundary (got ${AL.state.player.weaken})`
+    AL.state.opponent.weaken === 2,
+    `opponent's Weaken decays by 1 (3 -> 2) on the OPPONENT's own turn-END boundary (got ${AL.state.opponent.weaken})`
   );
   assert(
-    AL.state.opponent.weaken === 2,
-    `opponent's Weaken is untouched by the player's own turn boundary (still 2) (got ${AL.state.opponent.weaken})`
+    AL.state.player.weaken === 1,
+    `player's Weaken is untouched by the opponent's own turn-end boundary (still 1) (got ${AL.state.player.weaken})`
   );
 
   // Run one more full cycle to bring player's Weaken down to 0, then confirm
   // it floors at 0 (never negative) and stops reducing damage.
-  AL.endTurn();
+  AL.endTurn(); // player's turn ends -> weaken 1 -> 0
   AL.applyRemoteAction({ type: 'turnStart', drawCount: 0 });
   AL.applyRemoteAction({ type: 'endTurn' });
-  assert(AL.state.player.weaken === 0, `player's Weaken reaches exactly 0 after a second full cycle (got ${AL.state.player.weaken})`);
+  assert(AL.state.player.weaken === 0, `player's Weaken reaches exactly 0 after its own turn-end boundary fires again (got ${AL.state.player.weaken})`);
 
   // One more full cycle beyond that: must not go negative.
   AL.endTurn();
@@ -220,6 +234,62 @@ console.log('\n== Test D: turn-end decay removes exactly 1 stack, on the WEAKENE
   playSelfOrTarget(AL, 0);
   const dealt = hpBefore - AL.state.opponent.hp;
   assert(dealt === 6, `once Weaken hits 0, Strike deals its full, unreduced 6 damage again (got ${dealt})`);
+}
+
+console.log('\n== Test F: a real Weaken-1 grant (Crippling Blow) delivers exactly 1 effective turn of reduced damage -- the exact scenario docs/qa/card-shop-currency-milestone.md finding #3 found was a complete no-op ==');
+// This is the real-number regression check for finding #3: before the fix,
+// this entire test failed at the `dealt === 4` assertion below (Strike dealt
+// a full, unreduced 6, because the Weaken 1 Crippling Blow had just granted
+// was already decayed away by localTurnStart() before the player got to act).
+{
+  const AL = freshBattle(loadAL()); // player is first player, turn 1 is theirs
+  setHand(AL, AL.state.player, []);
+  AL.endTurn(); // player's turn 1 ends with nothing played -> opponent's turn starts
+
+  // Opponent's own turn starts, they play Crippling Blow (real card, real
+  // applyCardEffect() path, not a hand-set stack like the other tests) on
+  // the player -- exactly QA's repro methodology.
+  AL.applyRemoteAction({ type: 'turnStart', drawCount: 0 });
+  AL.state.opponent.mana = 3;
+  setHand(AL, AL.state.opponent, ['cripplingBlow']);
+  const playerHpBeforeCB = AL.state.player.hp;
+  AL.applyRemoteAction({ type: 'playCard', cardId: 'cripplingBlow' });
+  assert(AL.state.player.weaken === 1, `Crippling Blow grants exactly Weaken 1 to the player (got ${AL.state.player.weaken})`);
+  assert(
+    AL.state.player.hp === playerHpBeforeCB - 8,
+    `Crippling Blow's own 8 damage lands on the player in full (unaffected by the Weaken IT grants, which applies to the player's own FUTURE Attack damage, not damage the player takes) (hp ${AL.state.player.hp}, expected ${playerHpBeforeCB - 8})`
+  );
+
+  // Opponent ends their turn -> player's own turn starts.
+  AL.applyRemoteAction({ type: 'endTurn' });
+  assert(
+    AL.state.player.weaken === 1,
+    `player's Weaken 1 is STILL 1 the instant their own turn starts -- this is exactly the off-by-one QA caught (it used to already be 0 here) (got ${AL.state.player.weaken})`
+  );
+
+  // Player plays Strike on their very next turn -- the one turn Weaken 1 is
+  // supposed to cover.
+  AL.state.player.mana = 3;
+  setHand(AL, AL.state.player, ['strike']);
+  const oppHpBefore = AL.state.opponent.hp;
+  playSelfOrTarget(AL, 0);
+  const dealt = oppHpBefore - AL.state.opponent.hp;
+  assert(dealt === 4, `Strike (6 base) is reduced by the still-active Weaken 1 to floor(6*0.75)=4 -- Crippling Blow's Weaken grant is NOT a no-op (got ${dealt})`);
+
+  // That was the character's one effective turn -- decay fires when THIS turn ends.
+  AL.endTurn();
+  assert(AL.state.player.weaken === 0, `Weaken decays to 0 once the player's own turn (during which it was active) ends (got ${AL.state.player.weaken})`);
+
+  // Confirm there's no SECOND effective turn -- a Weaken-1 grant covers
+  // exactly 1 turn, not 2.
+  AL.applyRemoteAction({ type: 'turnStart', drawCount: 0 });
+  AL.applyRemoteAction({ type: 'endTurn' });
+  AL.state.player.mana = 3;
+  setHand(AL, AL.state.player, ['strike']);
+  const oppHpBefore2 = AL.state.opponent.hp;
+  playSelfOrTarget(AL, 0);
+  const dealt2 = oppHpBefore2 - AL.state.opponent.hp;
+  assert(dealt2 === 6, `the player's NEXT turn after that deals full, unreduced damage -- Weaken 1 delivered exactly 1 effective turn, not more (got ${dealt2})`);
 }
 
 console.log('\n== Test E: Weaken is public/mirrored state on BOTH sides, wired symmetrically regardless of which side is "actor" ==');
