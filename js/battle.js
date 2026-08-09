@@ -96,6 +96,20 @@ const Battle = (() => {
   // false until this function runs, so a same-tick handler ordering race
   // would otherwise silently drop turn 1's timer value.
   function start(accountId, initialDeadline) {
+    // Defense-in-depth guard (Minor finding #2 follow-up, docs/qa/practice-
+    // mode-milestone.md "THIRD path found"): js/practice.js's start() already
+    // guards itself against Battle.isActive() (see that function's doc
+    // comment), but this direction had no mirror -- a forced/adversarial
+    // direct call to Battle.start() (bypassing js/match.js's own guarded
+    // onBothPresent()/handleTurnStarted() call sites) could still flip
+    // `started` true while a practice match was live, and QA captured real
+    // `action`/`end_turn` frames from the still-active practice match leaking
+    // onto the real WS relay connection as a result. Refusing here closes
+    // that gap the same way js/practice.js's own guard does for the reverse
+    // direction -- both Battle.start() and Practice.start() now refuse to run
+    // while the other mode is active, regardless of call site.
+    if (typeof Practice !== 'undefined' && Practice.isActive()) return;
+
     myAccountId = accountId;
     started = true;
     resultReported = false;
