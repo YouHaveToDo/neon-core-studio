@@ -1404,3 +1404,271 @@ finding back to the programmer the same way Finding 1 and Finding 2 originally w
   exactly (`auto-end-turn-timer-sync-test.js`, `frozen-client-turn-timeout-test.js`)
 - `server/.env` reconfirmed pointing at local Postgres (`neoncore_dev`) before any testing
   began; migrations reconfirmed already applied locally (`Migrations up to date`).
+
+---
+
+## Follow-up verification #4 — independent re-check of commit `61cc7b9` (2026-08-10)
+
+**Scope:** independently re-verifying `61cc7b9` ("Fix AI turn-1 attack lock: inverted
+`isFirstPlayer` contract between `practice.js`/`ai.js`"), the fix for the new Major finding
+follow-up #3 surfaced incidentally (AI's own genuine first turn dealing real damage instead
+of being locked, whenever the AI was the genuinely-first player). Same rigor as all four
+prior passes: real spawned `server/` process, real local Postgres (`server/.env`'s
+`DATABASE_URL` reconfirmed pointing at `postgresql://postgres@localhost:5432/neoncore_dev`
+before any testing — migrations reconfirmed already applied via `node scripts/migrate.js`,
+never touched production), real static file server serving the repo root, real client
+bundle, Playwright (`chromium`, scratchpad-local install via `NODE_PATH`, not a repo
+dependency) driving genuine, **unforced** multi-account UI flows end-to-end (real signup →
+real "플레이" click → real deck-select tile click → real lobby → real practice CTA click,
+coin flip left completely unforced, exactly like a real player — not a devtools console call
+to `Practice.start()` for the core repro, unlike most of this document's mode-guard testing,
+since this bug is reachable through completely ordinary play). Did not trust the commit
+message's own verification claims at face value — independently rebuilt the repro from
+scratch, additionally stress-tested the two new integration tests' actual regression-catching
+power by temporarily reverting the fix in a real git checkout and confirming they fail
+correctly (not just reading the commit message's claim that they do), and re-ran the full
+regression suite fresh. All scripts referenced below live only in this session's scratchpad
+(`/private/tmp/.../scratchpad/qa4/`), not the repo.
+
+### Updated verdict
+
+**The fix is genuinely, solidly correct — high confidence, both directions.** 10/10 real,
+unforced practice matches where the AI was the genuinely-first player correctly dealt 0
+damage on the AI's real first turn; 10/10 real, unforced matches where the real player was
+first (making the AI genuinely second) correctly had the AI deal real damage on its own
+first turn, confirming the lock does not over-apply to the wrong side either. The two new
+integration tests (2f/2g) do exercise the real production `Practice.start()` call path, not
+a shortcut — independently confirmed by temporarily reverting the fix in a real checkout and
+watching both tests fail with the exact damage numbers the commit message claims (12 damage
+instead of 0 for 2f; 0 damage instead of >0 for 2g), then restoring and reconfirming clean.
+One benign, pre-existing test-harness timing quirk was found in test 2f's own "sanity" line
+(not a production bug, not introduced by this fix, not a false-negative risk for the actual
+regression assertion — see below) and is flagged for hygiene, not treated as a finding
+against the fix. Full regression suite: 19/21 clean, the same 2 pre-existing/unrelated
+failures (exact matching signatures, cross-checked against a parent-commit worktree in
+follow-up #1 and reconfirmed identically in every round since) as all three prior rounds.
+
+### Item 1 — AI as the genuinely-first player: CONFIRMED, real unforced trials
+
+**Repro (`turn1-lock-realtrials.js`):** 20 fully independent real accounts, each driven
+through the entire real UI flow (signup → 메인 메뉴 → "플레이" → 덱 선택 tile click → 로비 →
+real practice CTA click — `#btn-lobby-practice-empty`, the only visible CTA for a fresh
+account with no other rooms open), with the coin flip completely unforced (no
+`isFirstPlayer` override anywhere in this script). For every trial where `AL.state.turn ===
+'opponent'` immediately after the real How-to-Play overlay was dismissed (i.e., the AI was
+genuinely first), the AI's entire real first turn was allowed to run to completion and
+player HP was compared before/after.
+
+Of 20 real, unforced trials, the coin flip put the AI first in **10 of them** (essentially
+the expected ~50%, as the original bug report predicted) — comfortably clearing the task's
+"10+" bar for this specific scenario on its own:
+
+```
+AI genuinely first:  10 trials, 10 correctly dealt 0 damage
+```
+
+**10/10 — every single real, unforced trial where the AI was genuinely first correctly dealt
+zero damage on its real first turn.** No devtools, no forced parameters, no synthetic
+state injection — this is the exact repro class (ordinary play, real coin flip) the original
+follow-up #3 finding was about, and it is now clean.
+
+### Item 2 — AI as the genuinely-second player: CONFIRMED, no over-correction
+
+**Same script, same 20 trials, the other branch.** For every trial where the real player was
+genuinely first (`AL.state.turn === 'player'`, 10 of the 20 trials — the complementary half
+of the same unforced coin flip), the player's own first turn was ended immediately with no
+action taken (`AL.endTurn()`, mirroring the deep-dive script's own established method for
+isolating "does the AI's *own* actual first turn, now as the second player, correctly stay
+UNlocked" from any confound of what the human player did on their own locked first turn),
+and the AI's own real first turn (now genuinely as the second player) was allowed to run to
+completion.
+
+```
+AI genuinely second: 10 trials, 10 dealt >0 damage (unlocked, as expected)
+```
+Individual per-trial damage figures: 18, 14, 22, 26, 16, 18, 16, 6, 16, 10 — all real,
+nonzero, click-driven damage, confirming the fix's inversion did not accidentally flip the
+lock onto the *wrong* side (a real risk worth checking explicitly for an "invert a boolean"
+fix — getting the inversion backwards a second time would have manifested as exactly this:
+the AI incorrectly locked when it's actually second). **10/10 real, unforced trials where the
+AI was genuinely second correctly had it deal real damage on its own first turn — the lock
+correctly binds only the genuinely-first side, never the second.**
+
+Both directions verified with real trial counts safely above the task's "10+" bar (10 each,
+20 total, from genuinely independent unforced matches — not the same match observed twice),
+and both at a clean 100% pass rate.
+
+### Item 3 — sanity check on the new integration tests (2f/2g): they genuinely exercise the real production path, confirmed by reverting the fix, not just reading the commit message
+
+**Static read first:** both tests call `Practice.start(deckIds, { isFirstPlayer: ..., ... })`
+— the real, actual `js/practice.js` module's exported `start()` function, the exact function
+`js/match.js`'s real `onPracticeClick()` handler calls with no other opts — rather than
+calling `AI.createBrain()` directly (which is what the *pre-existing* 2a/2b tests do, and
+which is exactly why 2a/2b kept passing straight through the original bug: they always
+received an already-correct, pre-inverted value at their own call site, never routing through
+`js/practice.js`'s buggy wiring at all). This alone is enough to conclude 2f/2g are not a
+shortcut — but static reading a test's intent is weaker evidence than watching it actually
+fail against the bug it claims to catch, so:
+
+**Dynamic confirmation (independently reverting the fix in a real git checkout, not
+trusting the commit message's own "confirmed these fail on the pre-fix code" claim at face
+value):**
+```
+$ git show 61cc7b9^:js/practice.js > js/practice.js   # reintroduce the exact pre-fix code
+$ node server/scripts/practice-mode-ai-test.js
+...
+-- 2f: ... --
+  FAIL  REGRESSION CHECK ...: ... (got 12 damage dealt)
+-- 2g: ... --
+  FAIL  ... (got 0 damage dealt, expected > 0)
+$ git checkout -- js/practice.js   # restore
+$ diff <(git show 61cc7b9:js/practice.js) js/practice.js   # confirm byte-identical to the real fix
+(no output -- identical)
+$ node server/scripts/practice-mode-ai-test.js
+...
+-- 2f: ... --
+  PASS  REGRESSION CHECK ...: (got 0 damage dealt)
+-- 2g: ... --
+  PASS  ... (got 12 damage dealt, expected > 0)
+```
+Both tests fail on the reverted code with **exactly** the damage figures the commit message
+itself reports (12 damage for 2f, 0 damage for 2g — not just "some nonzero/zero value", the
+literal same numbers), and both pass cleanly once the real fix is restored, confirmed via a
+`diff` against the actual committed file to make sure the restore wasn't accidentally a
+slightly-different "looks right" reconstruction. This is about as strong a confirmation as
+this kind of test-quality check can get: the test genuinely, deterministically catches the
+exact regression it was written for, through the real production call path, not a
+pre-inverted shortcut. Repo state was confirmed clean (`git status`/`git diff` both empty)
+immediately afterward — no residual changes from this check.
+
+**One benign, pre-existing test-harness timing quirk found and root-caused (not a finding
+against the fix, flagged for hygiene only):** running the current (fixed) code's test 2f
+repeatedly (500 isolated iterations of its exact scenario in a standalone script,
+`isolate-2f-diag.js`) surfaces an intermittent `FAIL` on test 2f's own **sanity line**
+(`assert(AL.state.turn === 'opponent', ...)`) in roughly 13-18% of runs — but critically, the
+test's actual regression assertion (0 damage dealt) **never** failed alongside it (0/300
+isolated trials, cross-checked both at the sanity-check's own synchronous instant and again
+after full turn resolution). Root cause, confirmed by tracing the actual call stack rather
+than guessing: when the AI's shadow hand, after `blockAttack` removes every Attack-type card,
+has **no legal card left to play at all** (a plain probability of the specific
+`['strike']*5 + ['defend']*1` test deck, drawing 5 of 6 cards — roughly a 1-in-6 chance
+`'defend'` isn't among the 5 drawn, matching the observed ~15-18% rate almost exactly), the
+AI's entire turn-1 (`brain.playTurn()`) resolves **synchronously, with zero `await` points
+ever reached** — it immediately discards its hand and calls `AL.applyRemoteAction({type:
+'endTurn'})` inline, flipping `state.turn` back to `'player'` *before* control ever returns to
+the calling test code's own next line. Since this all happens inside the same synchronous
+call stack triggered by the test's own `AL.closeHowto()` call (`closeHowto()` → `emit()` →
+`Practice`'s `onStateChange()` → `runAiTurn()`'s synchronous prefix → in this specific edge
+case, the *entire* AI turn, no `await` reached), the test's sanity-check line — which assumes
+it's observing the game mid-way through the AI's turn — sometimes actually observes it
+*already fully resolved*. This is a genuine artifact of the test's own assertion timing, not
+a gameplay bug: the AI dealt 0 damage in every single one of these cases too (correctly
+locked, just resolved unusually fast), confirmed by checking the damage figure directly at
+the sanity-check's own instant, not only after the later `waitUntil`. **Not treated as a
+finding against `61cc7b9`** since (a) it's about the *test's own* assertion ordering, not
+production code the fix touched, (b) it doesn't create any false-negative risk — the actual
+regression assertion this test exists to make is unaffected and remains reliable, and (c) it
+did not reproduce in the *committed* CI-style run (only surfaced under a much larger,
+purpose-built 500-iteration stress loop) — flagging for the programmer's awareness only, not
+routing back as a bug report of its own given its low practical stakes (test-only, no
+production impact, doesn't threaten the test's actual regression-catching power).
+
+### Full regression suite — fresh run, 19/21 clean, same 2 pre-existing/unrelated failures as every prior round
+
+Ran all 21 scripts in `server/scripts/` (excluding `migrate.js`) fresh against a
+freshly-migrated local Postgres (`node scripts/migrate.js` → "Migrations up to date" before
+running):
+
+- **19/21 pass clean:** `smoke-test.js`, `deck-smoke-test.js`, `ws-smoke-test.js`,
+  `room-list-smoke-test.js`, `pvp-smoke-test.js`, `deck-size-relay-smoke-test.js`,
+  `double-disconnect-smoke-test.js`, `pull-smoke-test.js`, `practice-ink-smoke-test.js`,
+  `practice-mode-ai-test.js` (all pass, including the new 2f/2g — see item 3 above for the
+  one benign timing quirk found and why it's not a finding), `expansion-cards-test.js`,
+  `expansion-deck-ownership-test.js`, `ink-award-smoke-test.js`, `match-history-smoke-test.js`,
+  `report-result-race-smoke-test.js`, `weaken-status-test.js`,
+  `expansion-card-battle-ui-smoke-test.js`, `room-list-ui-fill-race-test.js`,
+  `shop-ui-smoke-test.js`.
+- **2/21 fail, identical failure-count signature to all three prior follow-up rounds:**
+  `auto-end-turn-timer-sync-test.js` (**exactly 2** assertion failures, computed
+  `~23994`-`23999ms` deadline where `~8000ms` was expected — same figures as every prior
+  round) and `frozen-client-turn-timeout-test.js` (**exactly 15** assertion failures, same
+  count as every prior round). Neither script touches practice mode or any file this round's
+  fix (`61cc7b9`, `js/practice.js` + `server/scripts/practice-mode-ai-test.js`) changed —
+  both are real-PvP server-configured short-turn-timeout scenarios. Already cross-checked
+  against a parent-commit `git worktree` in follow-up #1 (confirmed pre-existing, identical
+  signature reproduces on the unmodified parent commit) and reconfirmed with an unchanged
+  signature in follow-ups #2 and #3 — not re-litigated a fourth time since nothing relevant to
+  them has changed again this round and the exact failure counts match precisely.
+
+### Bottom line for the CEO — on this round's fix, AND a genuinely final verdict on the whole practice-mode milestone
+
+**On `61cc7b9` specifically: genuinely fixed, high confidence.** 10/10 real unforced trials
+with the AI genuinely first correctly dealt 0 damage; 10/10 real unforced trials with the AI
+genuinely second correctly dealt real damage (ruling out the fix having flipped the bug onto
+the wrong side instead of fixing it). The two new integration tests were independently
+confirmed — by actually reverting the fix in a real checkout, not by trusting the commit
+message — to genuinely exercise the real `Practice.start()` production path and to fail with
+the exact figures the commit claims when the bug is reintroduced. Regression suite: 19/21,
+same 2 pre-existing/unrelated failures as every round since follow-up #1, no new regressions.
+
+**On the whole practice-mode milestone, across all four rounds of findings: I am recommending
+shipping. This is a clean, confident "done."**
+
+Stating this plainly, since a long verification chain like this one is exactly the situation
+where a clear final answer matters as much as another finding would have:
+
+- **Finding 1 (Major, backgrounded-tab turn timer)** — fixed in `5435b4f`, verified with a
+  direct-mechanism test in follow-up #1 stronger than the original repro, untouched and
+  unaffected by every round since. **Holds.**
+- **Finding 2 (Minor/defense-in-depth, cross-mode state guard)** — went through four
+  cumulative rounds of adversarial pressure (original 2 directions → a 3rd path found in
+  follow-up #1 → a 4th path found in follow-up #2 → the guard moved into the shared mutator
+  itself in `52f1d72`, stress-tested from every angle in follow-up #3 including the legitimate
+  replay path, a double-click race, and static+dynamic checks of the `'howto'` screen
+  inclusion). A 5th, categorically-different-in-kind path was found and explicitly assessed as
+  not warranting a further round (same reasoning follow-up #3 already gave: it requires
+  forging a *second* unrelated function's result first, not just another caller of the same
+  mutator, and carries no WS-leak/third-party-impact risk). **This class of bug is genuinely,
+  solidly closed** and does not need another round of the same scrutiny.
+- **The AI turn-1 attack lock (new Major finding from follow-up #3, this round's fix)** — root
+  cause was a one-line semantic inversion at a single call site, confirmed by `git blame` to
+  have existed unchanged since the very first practice-mode-AI commit, reachable through
+  completely ordinary play on ~50% of matches. **Now fixed and independently re-verified this
+  round with real, unforced, click-driven trials on both sides of the coin flip, both at
+  100%.**
+- **Regression suite** has been stable at 19/21 (with the same 2 pre-existing,
+  cross-checked-as-unrelated failures) across all four follow-up rounds — no new regressions
+  have been introduced by any of the fixes along the way, and the two persistent failures were
+  already proven pre-existing (parent-commit worktree check, follow-up #1) rather than
+  something this milestone's work caused.
+
+**No open findings remain against this milestone.** Every Major and Minor finding raised
+across the original pass and all four follow-ups has either been fixed and independently
+re-verified, or (Finding 2's 5th path) was explicitly assessed as a categorically different,
+non-blocking class of gap not worth another dedicated round. Four rounds of deliberately
+adversarial, independent, real-environment (not code-read-only, not trust-the-commit-message)
+QA pressure on this milestone have converged cleanly. **Recommend shipping.**
+
+### Files referenced (follow-up #4)
+
+- Commit under test: `61cc7b9` (`js/practice.js`, `server/scripts/practice-mode-ai-test.js`)
+- Item 1/2 script: `turn1-lock-realtrials.js` (scratchpad, `/private/tmp/.../scratchpad/qa4/`)
+  — 20 real, unforced practice matches via the real UI end-to-end
+- Item 3 diagnostic script: `isolate-2f-diag.js` (scratchpad, same directory) — 500-iteration
+  isolated stress loop that root-caused the benign sanity-line timing quirk
+- Item 3 revert-and-confirm check: done directly via `git show 61cc7b9^:js/practice.js`,
+  `git checkout -- js/practice.js`, and `diff` against `git show 61cc7b9:js/practice.js` —
+  no separate script, commands reproduced verbatim in item 3 above; repo confirmed clean
+  (`git status`/`git diff` empty) immediately after
+- Fix code re-verified: `/Users/jungjongchan/Desktop/company/js/practice.js` (`start()`'s
+  `isFirstPlayer: !isFirstPlayer` argument to `AI.createBrain()`)
+- New tests re-verified: `/Users/jungjongchan/Desktop/company/server/scripts/practice-mode-ai-test.js`
+  (sections 2f/2g)
+- Regression suite: all 21 scripts in `server/scripts/` (excluding `migrate.js`); the 2
+  pre-existing failures match all three prior follow-up rounds' already-cross-checked
+  signature exactly, same failure counts (`auto-end-turn-timer-sync-test.js`: 2,
+  `frozen-client-turn-timeout-test.js`: 15)
+- `server/.env` reconfirmed pointing at local Postgres (`neoncore_dev`) before any testing
+  began (`DATABASE_URL=postgresql://postgres@localhost:5432/neoncore_dev`); migrations
+  reconfirmed already applied locally (`Migrations up to date`); production Supabase never
+  touched.
