@@ -163,6 +163,7 @@ document.addEventListener('DOMContentLoaded', () => {
   History.init();
   Shop.init();
   Battle.init();
+  Practice.init();
   App.init();
 
   // The "?" button only appears mid-battle (ui.js hides it otherwise) --
