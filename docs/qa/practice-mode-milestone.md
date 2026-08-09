@@ -697,3 +697,276 @@ failures confirmed pre-existing and unrelated).
   temporary `git worktree` (removed after use)
 - `server/.env` reconfirmed pointing at local Postgres (`neoncore_dev`) before any
   testing began; migrations reconfirmed already applied locally.
+
+---
+
+## Follow-up verification #2 — independent re-check of commit `6e981c9` (2026-08-10)
+
+**Scope:** independently re-verifying `6e981c9` ("Close the mode-guard asymmetry:
+`Battle.start()` now checks `Practice.isActive()`"), the fix for the THIRD path found in
+the prior follow-up above. Same rigor as both previous passes: real spawned `server/`
+process, real local Postgres (`server/.env`'s `DATABASE_URL` reconfirmed pointing at
+`postgresql://postgres@localhost:5432/neoncore_dev` before any testing — migrations
+confirmed already applied, never touched production), real static file server serving
+the repo root, real client bundle, Playwright (`chromium`, scratchpad-local install)
+driving genuine two/three-account UI flows end-to-end, plus `page.on('websocket')` frame
+capture for the WS-leak-specific claims (not just state inspection). Did not trust the
+commit message's own verification claims at face value — independently rebuilt all three
+prior repros from scratch against the current code, and then did a fourth, adversarial
+pass per this task's explicit instruction to keep questioning whether the fix is
+exhaustive rather than assuming it now is.
+
+All scripts referenced below live only in this session's scratchpad
+(`/private/tmp/.../scratchpad/qa-followup2/`), not the repo.
+
+### Updated verdict
+
+**Not ready to close out Finding 2 as fully resolved — but the specific, more serious
+risk this round's task was scoped around (real WS-relay leakage) is genuinely fixed.**
+All three previously-known repros (Direction A, Direction B, and the THIRD path found
+last round) are now solidly blocked, including the WS-frame-capture check for the third
+path specifically (zero outgoing frames on the real relay after the forced
+`Battle.start()` call is refused). However, one more adversarial pass — exactly what this
+task asked for, not assuming `6e981c9`'s fix is exhaustive — found a **fourth path**:
+calling `AL.startMatch()` directly (bypassing both `Practice.start()` and `Battle.start()`,
+and therefore both of their guards entirely) still silently overwrites `AL.state` while a
+practice match is live. This is real and reproduced live, but meaningfully **lower
+severity** than the third path: it does not leak any WS traffic (confirmed via frame
+capture, with and without a real open room connection present) and stays in the same
+"devtools-only, self-corrupts only the attacker's own client" reachability/consequence
+tier the original Finding 2 was always rated at — it does not reach a third party's real
+match the way the third path's leaked frames could have.
+
+### Test 1 — Direction A recheck: CONFIRMED still fixed
+
+Real two-account PvP match reaching real `AL.state` (`Battle.isActive()` confirmed `true`
+beforehand). Forced `Practice.start([...20 strikes...])` via console-style call on the
+live-match client.
+
+```
+PASS  precondition: Battle.isActive() is true on Alice's client before the attack (got true)
+PASS  precondition: Practice.isActive() is false before the attack (got false)
+PASS  Practice.start() refused to run (Practice.isActive() still false) (got false)
+PASS  real match's opponent name untouched (before=Bob_MG2, after=Bob_MG2)
+PASS  HP totals untouched (before p=50/o=50, after p=50/o=50)
+PASS  turn untouched (before=opponent, after=opponent)
+PASS  no uncaught page errors (got [])
+```
+
+### Test 2 — Direction B recheck: CONFIRMED still fixed
+
+Host creates a real room, leaves it open (no `leave_room`), forces `Practice.start()` over
+it. A real third account then joins the abandoned room via the real room list.
+
+```
+PASS  precondition: practice match is genuinely live on Carol's client (got true)
+PASS  precondition: opponent name is the fixed practice label (got 연습 상대)
+PASS  Practice.isActive() stayed true throughout (got true)
+PASS  opponent name unchanged by the real 3rd-account join traffic (before=연습 상대, after=연습 상대)
+PASS  turn unchanged (before=opponent, after=opponent)
+PASS  no uncaught page errors on Carol's client (got [])
+```
+
+### Test 3 — THIRD path (`Battle.start()` direct call) recheck: CONFIRMED fixed, including the WS-leak claim specifically
+
+This is the exact gap `6e981c9` was written to close, and the exact repro that produced
+the leaked `{"type":"action",...}`/`{"type":"end_turn"}` frames documented in the prior
+follow-up. Repro (`mode-guard-followup2.js`, Test 3): real open room (live WS connection,
+`Battle.isActive()` `false`), legit `Practice.start()` on top of it, then a forced
+`Battle.start('forced-account-id', null)` console call — followed by a real click on the
+real "End Turn" button in the still-live practice match, with `page.on('websocket')`
+frame capture armed around the whole attack window (not just state inspection, since the
+original gap's actual harm was network leakage, not just a flag check).
+
+```
+PASS  precondition: Battle.isActive() is false before the forced call (got false)
+PASS  Battle.start() refused to run (Battle.isActive() still false) -- this is 6e981c9's claimed fix (got false)
+PASS  NO outgoing WebSocket frames sent on the real relay connection after Battle.start() was refused and a real practice End Turn was clicked (got [])
+PASS  no uncaught page errors (got [])
+```
+
+**This specific finding — the one this round's task was centered on — is genuinely,
+solidly fixed.** The one-line `if (typeof Practice !== 'undefined' && Practice.isActive())
+return;` guard added to `Battle.start()` does exactly what its doc comment claims.
+
+### Test 4 — NEW adversarial pass: `AL.startMatch()` called directly bypasses BOTH guards and still clobbers state
+
+**What was tested (per this task's explicit item 3):** with the guard now symmetric on
+both `Practice.start()` and `Battle.start()`, is there any remaining way to get `AL.state`
+corrupted across modes that doesn't go through either `start()` function directly?
+
+Three sub-hypotheses were considered:
+- **A race between the two guards' checks:** ruled out by code inspection, not just
+  testing — both `Battle.start()` and `Practice.start()` run their
+  `Practice.isActive()`/`Battle.isActive()` check and the subsequent state mutation
+  (`started = true` / `active = true`, etc.) fully synchronously, with no `await` or other
+  yield point in between. JS's single-threaded execution model means no interleaving is
+  structurally possible between the check and the mutation within either function — there
+  is no window for the other function to run in between. No live repro was needed to rule
+  this out because the code itself makes it impossible, not just unlikely.
+- **A reconnect/resume flow:** grepped the whole `js/` tree for `reconnect`/`resume` — the
+  only reconnect-adjacent code (`js/battle.js`'s `handleOpponentReconnected`) only ever
+  calls `AL.setFrozen(false)`, never touches match-start; there is no session-resume path
+  that re-enters `AL.startMatch()`/`Practice.start()`/`Battle.start()` outside the two
+  already-guarded call sites in `js/match.js` (`onBothPresent()`, `handleTurnStarted()`)
+  and `js/practice.js`'s own `start()`.
+- **A state mutation path that bypasses both `start()` functions entirely:** **this one is
+  real.** `js/state.js`'s `AL.startMatch()` — the actual function both `Practice.start()`
+  and `js/match.js`'s `handleTurnStarted()` call to do the real work of overwriting
+  `state.player`/`state.opponent`/`state.turn`/etc. — has **no guard of its own**. Both of
+  `6e981c9`'s (and `5435b4f`'s) guards live in the two *callers*, not in the shared
+  mutator itself.
+
+**Repro (`mode-guard-followup2.js`, Test 4):** real signup → deck select → lobby → real
+`Practice.start()` (legit call, no room even needed) → real practice match reaches a real
+turn in progress. Then, via a forced console-style call:
+
+```js
+AL.startMatch({
+  deck: ['strike'],
+  isFirstPlayer: true,
+  opponentName: 'INTRUDER-DIRECT-STARTMATCH',
+  opponentDeckSize: 1,
+});
+```
+
+Result:
+```
+PASS  precondition: real practice match live (got true)
+before: {"practiceActive":true,"battleActive":false,"opponentName":"연습 상대","playerHp":44,"opponentHp":50,"turn":"opponent"}
+after:  {"practiceActive":true,"battleActive":false,"opponentName":"INTRUDER-DIRECT-STARTMATCH","playerHp":50,"opponentHp":50,"turn":"player"}
+PASS  AL.startMatch() called directly DOES clobber AL.state even after 6e981c9 (opponentName before=연습 상대 after=INTRUDER-DIRECT-STARTMATCH) -- confirms neither guard lives in the actual mutator
+PASS  Practice.isActive() STILL reports true even though the displayed match state was completely swapped out from under it (got true) -- the guard's own bookkeeping is now lying about what's on screen
+PASS  Battle.isActive() stayed false (no relay/timer wiring armed by this path) (got false)
+```
+
+(Note: the `PASS` labels above mean "the predicted bug behavior was confirmed" — this is
+an investigative script, not a pass/fail regression test; a "PASS" here is the finding,
+not a clean bill of health.)
+
+**Why this is lower severity than the third path, not just "another instance of it"
+(`mode-guard-followup2b.js`):** re-ran the same attack with a real open room/live WS
+connection present (Direction B's precondition) and `page.on('websocket')` frame capture
+armed before and after the attack, then continued interacting with the corrupted match
+(dismissed the `AL.startMatch()`-triggered fresh How-to-Play overlay — `startMatch()`
+always routes through `'howto'` first, per its own doc comment — then clicked the real End
+Turn button):
+
+```
+PASS  no WS frames sent purely from the direct AL.startMatch() call itself, even with a real open room connection present (got [])
+PASS  still no WS frames leaked to the real relay after continuing to interact with the corrupted match (got [])
+```
+
+`Battle.start()` was never called by this path, so `Battle`'s own `started`-gated
+`onLocalAction`/`onLocalTurnEndNotify` subscribers (the ones that actually call
+`Net.send`) stay permanently no-op-ed, exactly as `js/practice.js`'s file header already
+documents for the normal case. This path corrupts the **local client's own displayed
+state** (a real, confusing bug if ever reachable — an opponent name, HP bar, and turn that
+don't match what the player was actually doing) but does not, unlike the third path,
+create any path for that corruption to reach a real second account's real match via the
+relay.
+
+**Reachability (same tier as every mode-guard finding so far):** requires a direct
+console call to `AL.startMatch()` — there is no button, UI element, or normal click
+sequence that reaches this; identical devtools-only reachability to Directions A, B, and
+the third path.
+
+**Why worth flagging rather than waving through (per this task's explicit ask to apply
+the same scrutiny a third time):** this is the **third round in a row** a "make the fix
+symmetric" patch at specific call sites has left at least one more call site uncovered
+(original 2 directions → third path found in round 1 follow-up → fourth path found here).
+That pattern itself is the actual signal: guarding individual callers of a shared mutator
+is structurally always going to be a whack-a-mole fix as long as the mutator itself
+(`AL.startMatch()`) has no opinion on whether it's safe to run. A guard placed *inside*
+`AL.startMatch()` itself (e.g. refusing to run, or requiring an explicit
+"tear down whichever mode is currently active first" call) would close this class of gap
+for any future caller, not just the ones found so far — the same principle `6e981c9`'s own
+commit message invokes for why it put the guard inside `Practice.start()`/`Battle.start()`
+rather than only at their call sites, just not carried one level deeper to where the two
+of them actually converge.
+
+### Full regression suite — fresh run, 19/21 clean; same 2 pre-existing failures as the prior follow-up
+
+Ran all 21 scripts in `server/scripts/` (excluding `migrate.js`) fresh against a
+freshly-migrated local Postgres (migrations reconfirmed already applied before running):
+
+- **19/21 pass clean:** `smoke-test.js`, `deck-smoke-test.js`, `ws-smoke-test.js`,
+  `room-list-smoke-test.js`, `pvp-smoke-test.js`, `deck-size-relay-smoke-test.js`,
+  `double-disconnect-smoke-test.js`, `pull-smoke-test.js`, `practice-ink-smoke-test.js`,
+  `practice-mode-ai-test.js`, `expansion-cards-test.js`, `expansion-deck-ownership-test.js`,
+  `ink-award-smoke-test.js`, `match-history-smoke-test.js`, `report-result-race-smoke-test.js`,
+  `weaken-status-test.js`, `expansion-card-battle-ui-smoke-test.js`, `room-list-ui-fill-race-test.js`,
+  `shop-ui-smoke-test.js`.
+- **2/21 fail, same signature as the prior follow-up's cross-checked pre-existing
+  failures (not re-litigated with a fresh worktree diff this round since the prior
+  follow-up already established these are unrelated to the mode-guard/timer code and
+  reproduced identically on the parent commit):**
+  - `auto-end-turn-timer-sync-test.js`: 2 assertion failures, computed `~23994`–`23997ms`
+    deadline where `~8000ms` was expected (matches the `~23999ms` figure recorded last
+    round almost exactly).
+  - `frozen-client-turn-timeout-test.js`: 15 assertion failures (identical count to the
+    prior follow-up's run).
+  - Neither script touches practice mode or `js/battle.js`'s/`js/practice.js`'s mode-guard
+    code; both are real-PvP server-configured short-turn-timeout scenarios, same as before.
+  - This follow-up's own regression run had an unrelated **local environment hiccup**
+    worth noting for hygiene, not as a code finding: a leftover static file server from
+    this session's own manual setup was still bound to port 8080 the first time the suite
+    ran, causing `expansion-card-battle-ui-smoke-test.js`/`room-list-ui-fill-race-test.js`/
+    `shop-ui-smoke-test.js` (which each spawn their own static server on that port) to fail
+    with `EADDRINUSE`. Killed the stray process and re-ran; all three passed cleanly on the
+    second run, shown above. Flagging this only so the `EADDRINUSE` failures don't get
+    mistaken for a real regression by anyone re-reading this log later — they were this
+    session's own test-harness cleanup issue, not a bug in the fix under test.
+
+### Bottom line for the CEO
+
+**Not a clean "fully done" verdict, but close, and the part of the milestone this round
+was specifically scoped to re-check is genuinely solid.** To be precise about what's
+actually true right now:
+
+- **The specific WS-leak risk this round's task centered on (the third path,
+  `Battle.start()` bypassing the mode guard) is genuinely fixed, high confidence** —
+  verified with real WS frame capture, not just a state flag check, both in isolation and
+  with a real live match/end-turn click driving it.
+- **Direction A and Direction B (the original two Finding-2 repros) remain solidly
+  fixed**, reconfirmed fresh against the current code.
+- **A fourth path exists** (`AL.startMatch()` called directly) that still silently
+  corrupts `AL.state` while a practice match is live, bypassing both of `6e981c9`'s
+  guards entirely because neither guard lives in the shared mutator both `Practice.start()`
+  and `Battle.start()` ultimately call. This is real and independently reproduced live,
+  including confirming (not assuming) it does **not** leak WS traffic and stays in the
+  original Finding 2's severity/reachability tier — devtools-console-only, self-corrupts
+  only the attacking client, does not touch a real second account's match.
+- Regression suite: 19/21, same 2 pre-existing/unrelated failures as last round, no new
+  regressions from `6e981c9`.
+
+**Recommendation, not a blocker:** given this is now the third consecutive round where a
+narrowly-scoped symmetric-guard fix left one more caller of the same underlying mutator
+uncovered, the durable fix is likely to move the check into `AL.startMatch()` itself
+(`js/state.js`) rather than continuing to add guards at each new caller as it's
+discovered — that would close this specific class of gap for any future call site, not
+just the four found across three QA passes so far. This is a design/implementation call
+for the programmer, not prescribed here. Given the unchanged devtools-only reachability
+and the confirmed absence of any WS-leak consequence for this specific path, I would not
+personally block shipping the milestone on this alone — but "Finding 2 is fully closed,
+mutual guard, no gaps" is not yet an accurate statement, and CEO should make the shipping
+call knowingly rather than being told it's fully resolved when one more thread was still
+loose.
+
+### Files referenced (follow-up #2)
+
+- Commit under test: `6e981c9` (`js/battle.js`)
+- Test 1-3 script: `mode-guard-followup2.js` (scratchpad,
+  `/private/tmp/.../scratchpad/qa-followup2/`)
+- Test 4 scripts: `mode-guard-followup2.js` (Test 4), `mode-guard-followup2b.js`
+  (WS-leak-absence + continued-interaction supplementary check)
+- Fix code re-verified: `/Users/jungjongchan/Desktop/company/js/battle.js` (`start()`'s
+  new `Practice.isActive()` guard, `isActive()`)
+- New gap located in: `/Users/jungjongchan/Desktop/company/js/state.js` (`startMatch()` —
+  no guard of its own; the actual mutator both `js/practice.js`'s `start()` and
+  `js/match.js`'s `handleTurnStarted()` call into)
+- Regression suite: all 21 scripts in `server/scripts/` (excluding `migrate.js`); the 2
+  pre-existing failures match the prior follow-up's already-cross-checked signature
+  (`auto-end-turn-timer-sync-test.js`, `frozen-client-turn-timeout-test.js`)
+- `server/.env` reconfirmed pointing at local Postgres (`neoncore_dev`) before any
+  testing began; migrations reconfirmed already applied locally.
