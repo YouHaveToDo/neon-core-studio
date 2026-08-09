@@ -258,6 +258,33 @@ const AL = (() => {
   //                    which never goes through the relay at all) -- in any
   //                    real match this is always the server-relayed value.
   function startMatch(opts) {
+    // Shared-mutator guard (docs/qa/practice-mode-milestone.md, follow-up #2,
+    // "fourth path"): js/practice.js's start() and js/match.js's
+    // handleTurnStarted() each already refuse to run while the OTHER mode is
+    // active (Battle.isActive()/Practice.isActive()), but both of those
+    // guards live in the *callers* -- this function, the shared mutator both
+    // of them funnel through, had no guard of its own, so a direct
+    // AL.startMatch() call (bypassing both callers entirely, e.g. via
+    // devtools) could still clobber a live match's state.player/opponent/
+    // turn out from under it. Three rounds of QA passes each found one more
+    // caller a narrowly-scoped fix left uncovered (commits 5435b4f, 6e981c9)
+    // -- putting the check here instead covers every caller, present and
+    // future, in one place.
+    //
+    // This file is deliberately kept UI/mode-agnostic (see file header --
+    // it never reaches out to js/battle.js or js/practice.js), so the check
+    // below is self-contained: `state.screen` is 'battle' for the entire
+    // span of an already-underway match with the how-to overlay dismissed,
+    // and 'howto' both at the very start of a fresh match (this function
+    // sets it below, before returning) AND when it's reopened mid-match
+    // (openHowto(), below -- only ever reachable from the "?" button, which
+    // ui.js only shows while state.screen === 'battle'). So 'battle'/'howto'
+    // together mean "a match is currently live," while 'start' (never
+    // touched) and 'victory'/'defeat' (a just-ended match) do not -- calling
+    // startMatch() again from either of those is exactly the legitimate
+    // "다시 플레이"/"다시 연습하기" flow and must keep working.
+    if (state.screen === 'battle' || state.screen === 'howto') return;
+
     opts = opts || {};
     const deck = (opts.deck && opts.deck.length ? opts.deck : STARTER_DECK).slice();
     const opponentDeckSize = opts.opponentDeckSize || deck.length;
