@@ -98,6 +98,24 @@ const Practice = (() => {
   //   turnSeconds/pacingMs/aiRng/aiSleepFn/aiMaxIterations -- test-only
   //    overrides, never used by the real (not-yet-built) lobby entry point.
   function start(deckIds, opts) {
+    // Defense-in-depth guard (Minor finding #2, docs/qa/practice-mode-
+    // milestone.md "Direction A"): a real PvP match is only ever reachable
+    // through js/match.js's own room-list flow, whose UI synchronously
+    // disables/hides every practice entry point the instant a real
+    // room-join/match-start is in flight -- there is no ordinary click
+    // sequence that reaches this function while Battle.isActive() is true.
+    // QA's repro required a forced native .click() on an already-disabled
+    // button (or a direct console call to this function), bypassing that UI
+    // guard entirely -- reachable via devtools, not by any real player
+    // action. Refusing to start here (rather than only relying on the UI
+    // layer) closes that gap: a forced/adversarial Practice.start() call can
+    // no longer silently overwrite a live real match's AL.state (opponent
+    // name/HP/turn all got clobbered before this guard existed). Symmetric
+    // half of this guard lives in js/match.js's onBothPresent()/
+    // handleTurnStarted() (Practice.isActive() check), for the reverse
+    // direction.
+    if (typeof Battle !== 'undefined' && Battle.isActive()) return;
+
     opts = opts || {};
     active = true;
     currentTurnHandled = null;
@@ -215,10 +233,56 @@ const Practice = (() => {
 
   function tick() {
     renderTimerTick();
+    checkTimerExpiry();
+  }
+
+  // Bug fix (Major, docs/qa/practice-mode-milestone.md finding #1): the
+  // interval poll above is the only place expiry USED to get noticed, and
+  // that's fragile against browser background-tab timer throttling -- Chrome
+  // (and other browsers) deliberately delay/coalesce setInterval/setTimeout
+  // callbacks for a backgrounded tab to save battery/CPU, so a 250ms poll can
+  // simply not fire again for a long stretch (QA's diagnostic pointed at this
+  // specifically -- other setTimeout-driven code on the same page, js/ai.js's
+  // pacing, did NOT show the same failure rate, so this isn't a blanket
+  // "whole page frozen" effect, it's specific to this interval's own
+  // scheduling). Switching the interval itself to setTimeout wouldn't fix
+  // this on its own -- a single deadline-based setTimeout is throttled by the
+  // exact same background-tab policy as setInterval; neither primitive is
+  // guaranteed to fire promptly while hidden.
+  //
+  // The actually-robust fix: pull the expiry CHECK (Date.now() >=
+  // timerDeadline) out into its own function and also run it from
+  // 'visibilitychange'/'focus' (see init() below), not just from the
+  // interval tick. Those two events are NOT subject to the same throttling —
+  // they fire the moment the tab genuinely regains visibility/focus, which is
+  // a real user action, not a timer callback — so even if every single
+  // interval tick was starved for the entire time the tab was backgrounded,
+  // the instant the player switches back to this tab, this same
+  // Date.now()-vs-deadline check runs immediately and catches an
+  // already-passed deadline right then, rather than waiting for whatever the
+  // interval's next (possibly still-delayed) tick happens to be. This is a
+  // self-correcting check ("are we currently past the deadline?"), not a
+  // "did the timer fire?" flag, so it's correct regardless of how many ticks
+  // were missed or how the throttling happened to behave for a given trial —
+  // which is what QA's own root-cause note flagged as the fix to look at, and
+  // what QA's ~50%-failure-rate methodology (real Chromium tab-backgrounding,
+  // not a fake clock) is the right way to verify against.
+  function checkTimerExpiry() {
     if (timerDeadline != null && Date.now() >= timerDeadline) {
       stopPlayerTimer();
       onTimerExpire();
     }
+  }
+
+  // Catch-up handler for the two events above -- registered once in init().
+  // Only meaningful on REGAINING visibility/focus (losing it is the moment
+  // throttling can start, not the moment to check); checkTimerExpiry() itself
+  // is a no-op if there's no active player-turn deadline right now, so this
+  // is harmless to call unconditionally otherwise (e.g. during the AI's own
+  // turn, or outside a practice match entirely).
+  function handleVisibilityOrFocusRegain() {
+    if (typeof document !== 'undefined' && document.hidden) return;
+    tick();
   }
 
   // §5.1: "카운트다운이 0에 도달하면 ... 서버가 turn_timeout을 보냈을 때와
@@ -357,11 +421,32 @@ const Practice = (() => {
   // handler above already no-ops while `active` is false, so it's harmless
   // for this to be wired up permanently regardless of whether a practice
   // match is ever actually started.
+  //
+  // 'visibilitychange'/'focus' (fix for docs/qa/practice-mode-milestone.md
+  // finding #1, see checkTimerExpiry()'s doc comment above): registered once
+  // globally, same "wired up permanently, every handler no-ops when
+  // irrelevant" pattern as everything else here -- handleVisibilityOrFocusRegain()
+  // is a no-op whenever there's no live player-turn deadline (AI's turn, no
+  // practice match at all, etc.), so this needs no active-match guard of its
+  // own. No document in the Node vm test harness (see cache()'s doc comment)
+  // -- guarded the same way.
   function init() {
     cache();
     AL.onChange(onStateChange);
     AL.onMatchEnd(handlePracticeMatchEnd);
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityOrFocusRegain);
+      window.addEventListener('focus', handleVisibilityOrFocusRegain);
+    }
   }
 
-  return { init, start, stop, restart };
+  // Defense-in-depth guard (Minor finding #2, docs/qa/practice-mode-
+  // milestone.md): exposes whether a practice match is currently live, so
+  // js/match.js can refuse to let an abandoned-room's real-match traffic
+  // (opponent_joined/turn_started) clobber this module's active AL.state --
+  // see match.js's onBothPresent()/handleTurnStarted() doc comments for the
+  // other half of this guard.
+  function isActive() { return active; }
+
+  return { init, start, stop, restart, isActive };
 })();

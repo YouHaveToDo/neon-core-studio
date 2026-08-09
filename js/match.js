@@ -582,7 +582,24 @@ const Match = (() => {
     return (Math.abs(hashRoomCode(roomCode)) % 2) === 0;
   }
 
+  // Defense-in-depth guard (Minor finding #2, docs/qa/practice-mode-
+  // milestone.md "Direction B"): a real room can be left open server-side
+  // (still findable/joinable) after this client force-switched into an
+  // adversarial practice match without ever sending leave_room -- not
+  // reachable through any normal click sequence (see practice.js's start()
+  // doc comment for the symmetric guard and why both directions require a
+  // forced/adversarial precondition), only via devtools. Without this check,
+  // a real third account later joining that abandoned room would fire
+  // opponent_joined/room_joined here and silently overwrite the live
+  // practice match's AL.state (opponent name/HP/turn all got clobbered
+  // before this guard existed). Checked here (before this client would send
+  // its own start_match) AND in handleTurnStarted() below (before
+  // AL.startMatch() actually runs) -- since only one of the two clients in a
+  // room ever sends start_match (see this file's header), guarding only
+  // here wouldn't stop the OTHER (unaffected) client from sending it and
+  // this one still receiving the resulting turn_started broadcast.
   function onBothPresent(displayName, deckSize) {
+    if (Practice.isActive()) return;
     opponentDisplayName = displayName;
     opponentDeckSize = typeof deckSize === 'number' ? deckSize : null;
 
@@ -596,6 +613,14 @@ const Match = (() => {
 
   function handleTurnStarted(msg) {
     if (matchStarting) return; // idempotent guard -- server already dedupes start_match, this just prevents a second AL.startMatch() call client-side
+    // Defense-in-depth guard (Minor finding #2, docs/qa/practice-mode-
+    // milestone.md "Direction B") -- see onBothPresent()'s doc comment just
+    // above. This is the check that actually matters: AL.startMatch() below
+    // is what overwrites AL.state, and turn_started can arrive here even when
+    // onBothPresent() never ran on THIS client (the OTHER client in the
+    // abandoned room is the one who sent start_match) -- so the guard has to
+    // live here too, not just at the send site.
+    if (Practice.isActive()) return;
     if (!selectedDeck) return; // defensive -- shouldn't fire before a deck was chosen
     matchStarting = true;
     stopPolling();

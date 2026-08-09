@@ -395,5 +395,12 @@ const Battle = (() => {
     el.btnClaimForfeit.addEventListener('click', onClaimForfeitClick);
   }
 
-  return { init, start, reset };
+  // Defense-in-depth guard (Minor finding #2, docs/qa/practice-mode-
+  // milestone.md): exposes whether a real PvP match is currently live, so
+  // js/practice.js's start() can refuse to run (and clobber AL.state) while
+  // one is -- see that function's doc comment for the other half of this
+  // guard.
+  function isActive() { return started; }
+
+  return { init, start, reset, isActive };
 })();
