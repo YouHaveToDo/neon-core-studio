@@ -411,3 +411,289 @@ line of defense.
   `qa-timer-bg-manual-recovery.js`, `qa-timer-bg-during-ai-turn.js`, `qa-timer-instrument.js`
 - `server/.env` confirmed pointing at local Postgres (`neoncore_dev`) before any testing
   began; migration 004 confirmed already applied locally (not re-applied to production).
+
+---
+
+## Follow-up verification — re-check of commit `5435b4f`'s fixes (2026-08-10)
+
+**Scope:** independently re-verifying both fixes commit `5435b4f` ("Fix backgrounded-tab
+timer + add practice/PvP mode guard") claims for Finding 1 (Major, local timer) and
+Finding 2 (Minor, mode guard) above. Same rigor as the original pass: real spawned
+`server/` process, real local Postgres (`server/.env`'s `DATABASE_URL` reconfirmed
+pointing at `postgresql://postgres@localhost:5432/neoncore_dev` before any testing —
+never touched production), real static file server, real client bundle, Playwright
+(`chromium`, scratchpad-local install) driving genuine UI flows end-to-end. Did not
+just read/trust the commit message's own verification claims — independently
+reconfirmed the sandbox limitation it describes, built a stronger direct-mechanism
+test for Finding 1 rather than accepting the commit's substitute method on faith, and
+adversarially probed Finding 2's fix for a third path beyond the two originally
+reported. All scripts referenced below live only in this session's scratchpad
+(`/private/tmp/.../scratchpad/pw/`), not the repo.
+
+### Updated verdict
+
+**Not ready to ship as-is.** Finding 1 (Major, local timer) is **genuinely fixed** —
+confirmed with a direct-mechanism test that is stronger evidence than either the
+original report's real-backgrounding repro (blocked by a confirmed sandbox limitation)
+or the commit's own described substitute harness. Finding 2 (Minor, mode guard) is
+**only partially fixed** — both of the two originally-reported adversarial directions
+are now solidly blocked, but adversarial re-scanning per this task's explicit ask found
+a **third, equally-reachable-only-via-devtools path the fix does not cover**, with
+concrete evidence of real practice-match actions leaking onto the real WebSocket relay
+connection. Full regression suite: 19/21 scripts clean; the 2 failures are confirmed
+**pre-existing on the parent commit** (unrelated to this fix, see below), not a new
+regression, but they do mean the commit message's "Full 21-script regression suite
+green" claim doesn't hold in this environment as literally stated.
+
+### Finding 1 re-check: backgrounded-tab timer — genuinely fixed, verified via a stronger direct-mechanism test
+
+**Step 0 — independently reconfirmed the sandbox limitation before adapting method
+(as instructed), rather than taking the commit's word for it:** wrote a minimal
+check (`check-visibility-sandbox.js`) that opens two real pages in one browser
+context, calls `page2.bringToFront()`, and polls `document.hidden`/`document.hasFocus()`
+on page1. Result: `document.hidden` stayed `false` and no `visibilitychange`/`blur`/
+`focus` events fired on page1 at all, before or after the switch. Confirmed this
+independently — this sandbox's Chromium genuinely does not deliver real
+`visibilitychange`/`focus` events from `bringToFront()`-driven tab occlusion. This
+matches the commit's claim; it is a real sandbox limitation, not a lazy excuse.
+
+**Step 1 — re-ran the ORIGINAL real-backgrounding repro against the current code**
+(`qa-timer-real-backgrounding-retest.js`): real signup → deck select → lobby → real
+practice CTA click → real 24s timer → second real tab brought to front for 26s → practice
+tab brought back → polled for recovery. Result: **still stuck** (`AL.state.turn`
+stayed `'player'`), and `document.hidden` on the practice tab never flipped to `true`
+at any point during backgrounding. This is the same sandbox limitation as Step 0, not
+a sign the fix is broken — the fix's own mechanism (`visibilitychange`/`focus`
+listeners) structurally cannot be exercised via genuine tab-occlusion in this sandbox,
+same as it couldn't during the original QA pass.
+
+**Step 2 — built a stronger direct-mechanism test** (`qa-timer-visibility-direct.js`),
+per this task's suggestion, since genuine OS-level occlusion isn't available here.
+Real signup → deck select → lobby → real practice CTA click → real player-turn 24s
+timer, via a fully real UI flow (including dismissing the first-time-player onboarding
+`#screen-howto` overlay, `docs/design/onboarding.md`, which both this and the original
+QA session's flow needed to pass through). On top of that real flow:
+1. **`window.setInterval` neutered via `page.addInitScript()`** before any app script
+   runs, so `js/practice.js`'s own `setInterval(tick, 250)` is installed but its
+   callback never fires again — a **total**, not partial, simulation of background-tab
+   interval starvation (strictly worse than real throttling).
+2. Confirmed the timer UI genuinely froze (`24` → `24` after a real 2s wait) —
+   verifying the interval really was fully neutered, not just probably throttled.
+3. Let **real wall-clock time** (`page.waitForTimeout(25000)`, no fake clock) pass
+   25s — past the real 24s deadline — with the interval still neutered. Confirmed
+   `AL.state.turn` was still `'player'` — a **live-reproduced baseline**: with only the
+   interval-tick path available, the timer is still genuinely stuck, exactly matching
+   the original Major finding's failure mode.
+4. Dispatched **synthetic `visibilitychange` and `focus` DOM events**
+   (`document.dispatchEvent(new Event('visibilitychange'))` /
+   `window.dispatchEvent(new Event('focus'))`) via `page.evaluate()`. This exercises
+   the real, `addEventListener`-registered `handleVisibilityOrFocusRegain()` →
+   `tick()` → `checkTimerExpiry()` code path added in this commit, using the real
+   `Date.now()` vs. real `timerDeadline` check and the real `AL.endTurn()`
+   consequence — only the event's *delivery mechanism* is synthetic (necessary given
+   the confirmed sandbox limitation), none of the fix's own logic is bypassed, mocked,
+   or called via an internal test-only hook.
+5. Result: `AL.state.turn` flipped from `'player'` to `'opponent'` **immediately**
+   after the synthetic dispatch (no manual End Turn click), and
+   `AL.state.player.hand.length` went from `5` to `0` — the real discard/pass-turn
+   consequence actually ran, not just a flag flip.
+
+**Ran 3 times total, all 3 fully clean (`ALL PASS`), fully deterministic** — no flake
+across runs, consistent with this being a real `Date.now()`-based check rather than
+timing-sensitive.
+
+**Why this is stronger evidence than either the original repro or the commit's own
+described substitute:** it drives the *exact* real fix code path (real listeners
+registered via `init()`, real `Date.now()` comparison, real `AL.endTurn()`) through a
+full genuine browser UI session — not a Node-side reimplementation of the timer logic,
+not an internal test-only hook, and not reliant on genuine OS-level tab-occlusion
+(which this sandbox cannot produce, confirmed independently in Step 0/Step 1 above). I
+was not able to inspect the commit's own "controlled interval-drop harness" directly
+(described only in the commit message, lives in that session's own scratchpad, not the
+repo), so I can't audit its exact implementation — but per its own description ("real
+Date.now()/game logic, only the callback-delivery mechanism substituted") it sounds
+methodologically similar in spirit to what I built. Regardless of how that harness was
+implemented, my own from-scratch test reaches the same conclusion via a fully
+independent, real-UI-driven path, which is what this follow-up needed to establish
+confidence rather than relying on the programmer's self-report.
+
+**Bottom line on Finding 1:** genuinely fixed, with high confidence. The one thing
+neither QA pass (original or this follow-up) can verify in this sandbox is "does a
+*real* OS-level tab switch reliably fire `visibilitychange`/`focus` promptly" — but
+that's a well-documented browser API contract external to this app's own code, not
+something further testing in this environment can add confidence to either way.
+
+### Finding 2 re-check: mode guard — Directions A and B fully fixed; a THIRD adversarial path was found, not covered by the fix
+
+**Direction A re-check (`qa-mode-guard-direction-a.js`) — CONFIRMED FIXED.** Two real
+accounts, real room create/join, real match reaching real `AL.state` (opponent name,
+50/50 HP). Forced `Practice.start([...])` via a direct console-style call on the client
+with the live real match (`Battle.isActive()` confirmed `true` immediately beforehand).
+Result: `Practice.start()` refused (`Practice.isActive()` stayed `false` afterward),
+and the real match's `AL.state` was **completely untouched** — opponent name, HP, and
+screen all identical before/after the forced call. The original silent clobber
+(opponent name → `"연습 상대"`, HP reset to 50/50) does not reproduce.
+
+**Direction B re-check (`qa-mode-guard-direction-b.js`) — CONFIRMED FIXED.** Host (A)
+creates a real room, leaves it open, forces `Practice.start()` over it (no
+`leave_room` sent, exactly the original repro). A real third account (C) then joins
+that abandoned room via the real room list. Result: A's live practice match's
+`AL.state` (`opponentName: "연습 상대"`, HP, turn) was **completely unchanged** after
+C joined and the resulting `opponent_joined`/`turn_started` traffic arrived —
+`Practice.isActive()` stayed `true` throughout, confirming `js/match.js`'s
+`onBothPresent()`/`handleTurnStarted()` guards correctly refuse to process real-match
+traffic while a practice match is live.
+
+**THIRD path found — [new finding, same severity class as the original Finding 2] `Battle.start()` itself has no internal guard against `Practice.isActive()`, unlike the symmetric guard `Practice.start()` got**
+
+This task explicitly asked to think adversarially about whether a third path exists
+beyond the two originally found, rather than assuming the fix is exhaustive. It does:
+
+- The fix added a guard *inside* `js/practice.js`'s `start()` itself
+  (`if (Battle.isActive()) return;` — defends itself regardless of caller) but only
+  added guards at `js/match.js`'s two call sites that invoke `AL.startMatch()`
+  (`onBothPresent()`/`handleTurnStarted()`), **not inside `js/battle.js`'s `start()`
+  itself**. `Battle.start()` has zero internal awareness of `Practice.isActive()` — it
+  unconditionally sets its own module-local `started = true` and arms its own timer
+  interval, exactly as before this commit.
+- `js/battle.js`'s own file header explicitly documents that its permanently-wired
+  `onLocalAction`/`onLocalMatchEnd`/`onLocalTurnEndNotify` subscribers (on the exact
+  same `AL.onAction()`/`onMatchEnd()`/`onLocalTurnEnd()` buses `js/practice.js` also
+  drives real practice-match actions through) are safe to leave wired up
+  unconditionally *specifically because* they're gated on `started`, "which only
+  `Battle.start()` ever sets true." That safety invariant depends on `Battle.start()`
+  never running while a practice match is live — which the fix does not actually
+  guarantee, since `Battle.start()` can still be called directly.
+- **Repro (`qa-mode-guard-direction-c-with-ws.js`):** real account creates a real room
+  (opens a real WebSocket connection; `Battle.isActive()` is `false` at this point, no
+  opponent matched yet). Legitimately starts a real practice match on top of it (same
+  precondition Direction B already reconfirmed safe by itself). Then forces
+  `Battle.start('forced-account-id', null)` directly via console — bypassing
+  `js/match.js`'s guarded `handleTurnStarted()` entirely, the same class of "devtools
+  console call" attack as the original two directions. `Battle.isActive()` flips to
+  `true` with no resistance. Clicking the real End Turn button in the still-live
+  practice match then produced these **actual captured outgoing WebSocket frames** on
+  the real room connection:
+  ```
+  {"type":"action","payload":{"type":"endTurn"}}
+  {"type":"end_turn"}
+  ```
+  I.e., a real practice-match turn-end **leaked onto the real relay connection**,
+  exactly the class of cross-mode contamination Finding 2 was about, just through a
+  path the fix didn't close.
+- **Downstream consequence (reasoned from server code, not independently
+  re-verified end-to-end with a live third account due to time):**
+  `server/src/ws/server.js`'s `onAction()` only errors back
+  (`OPPONENT_UNAVAILABLE`) if the room has no second player yet — in a room with a
+  real matched opponent (e.g., Direction B's "abandoned room + real third account C
+  joins" scenario, or any room that legitimately fills before this attack is
+  performed), this same leaked message **would relay to the real opponent's real
+  client**, since the server has no concept of "practice mode" at all (matchmaking is
+  100% a client-side distinction) — a real third party's real match state could be
+  corrupted by an unrelated practice match's local actions, not just self-corruption
+  on the attacking client. This makes the exposure of this specific gap arguably more
+  serious in consequence than the original two directions (which only ever
+  self-corrupted the attacker's own client), even though the reachability
+  precondition (devtools-only, no normal click path) is identical.
+
+**Reachability caveat (same as the original Finding 2, why not escalating severity
+tier):** requires a direct console call to `Battle.start()` — there is no UI element,
+button, or normal click sequence that reaches this; the "third path" label refers to
+a third *attack vector*, not a third normally-reachable UI bug.
+
+**Suggested fix (not prescribed, matching this doc's convention):** add the same
+`if (Practice.isActive()) return;` guard directly inside `js/battle.js`'s own
+`start()`, mirroring what `js/practice.js`'s `start()` already does for the reverse
+direction — this would make the guard genuinely symmetric and self-defending
+regardless of call site, rather than depending on every current and future caller of
+`Battle.start()` to check first.
+
+### Full regression suite — fresh run, 19/21 clean; 2 failures confirmed pre-existing on the parent commit (not a regression from this fix)
+
+Ran all 21 scripts in `server/scripts/` (excluding `migrate.js`) fresh against a
+freshly-migrated local Postgres:
+
+- **19/21 pass clean:** `smoke-test.js`, `deck-smoke-test.js`, `ws-smoke-test.js`,
+  `room-list-smoke-test.js`, `pvp-smoke-test.js`, `deck-size-relay-smoke-test.js`,
+  `double-disconnect-smoke-test.js`, `pull-smoke-test.js`, `practice-ink-smoke-test.js`,
+  `practice-mode-ai-test.js`, `expansion-cards-test.js`, `expansion-deck-ownership-test.js`,
+  `ink-award-smoke-test.js`, `match-history-smoke-test.js`, `report-result-race-smoke-test.js`,
+  `weaken-status-test.js`, `expansion-card-battle-ui-smoke-test.js` (Playwright-based,
+  needed `NODE_PATH` pointed at a scratchpad-local Playwright install, same as this
+  session's other scripts), `room-list-ui-fill-race-test.js`, `shop-ui-smoke-test.js`.
+- **2/21 fail:** `auto-end-turn-timer-sync-test.js` (2 assertion failures around a
+  computed `~23999ms` deadline where `~8000ms` was expected, plus a `waitFor` timeout
+  crash in its Scenario C) and `frozen-client-turn-timeout-test.js` (15 failures,
+  server-driven turn-reconciliation assertions). **Neither script touches practice
+  mode or the mode-guard code this commit changed** — both exercise real-PvP
+  server-configured short turn-timeout scenarios (`PVP_TURN_TIMEOUT_MS`-style
+  short-deadline test configs).
+- **Confirmed these are pre-existing, not introduced by `5435b4f`:** checked out the
+  immediate parent commit (`6b26fc4`) into a separate `git worktree`, pointed it at
+  the same local Postgres, and re-ran both scripts fresh. **Identical failure
+  signatures reproduced on the parent commit** — same `~23999ms` vs. `~8000ms`
+  mismatch, same Scenario C `waitFor` timeout, same 15 assertion failures in
+  `frozen-client-turn-timeout-test.js` (including the exact same computed values,
+  e.g. mana/block figures). This is an environment-specific issue in this particular
+  sandbox (most likely a short-turn-timeout test-config value not taking effect the
+  way it does in the programmer's own environment, given `docs/qa/online-pvp-milestone.md`'s
+  own earlier follow-up records `frozen-client-turn-timeout-test.js` passing cleanly
+  in an earlier session) — not something this follow-up's scope (the timer fix / mode
+  guard fix) caused or can fix. Flagging honestly rather than omitting it: the commit
+  message's claim of "Full 21-script regression suite green" does not hold exactly as
+  stated in this environment, but the discrepancy is pre-existing and unrelated to
+  either of this commit's two fixes.
+
+### Bottom line for the CEO
+
+**Finding 1 (Major, backgrounded-tab timer): genuinely fixed, high confidence.**
+Verified via a direct-mechanism test stronger than either QA pass's original
+real-backgrounding repro (blocked by a sandbox limitation, independently
+reconfirmed) or the commit's own described substitute harness (couldn't audit
+directly, but reached the same conclusion independently from scratch). The evidence
+here is trustworthy: it exercises the fix's real listeners, real `Date.now()` check,
+and real consequence, end-to-end through a genuine browser session, 3/3 clean runs,
+no flake.
+
+**Finding 2 (Minor, mode guard): partially fixed.** Both originally-reported
+directions are solidly closed. But this follow-up's adversarial re-scan (explicitly
+asked for, not just re-running the same two repros) found a third, real path — direct
+`Battle.start()` calls bypass the fix entirely, and I captured actual leaked WS
+traffic proving practice-match actions can reach the real relay connection. Given the
+server has zero concept of practice mode, this could in principle reach a real third
+account's real match. Recommend logging this as a small follow-up fix (mirror the
+guard inside `Battle.start()` itself) before treating Finding 2 as fully closed — not
+a blocker on its own (same devtools-only reachability tier as before), but the "mutual
+guard, both directions" claim in the commit message is not yet actually true.
+
+**Not ready to ship as fully complete as claimed** — but close: one Major finding is
+solidly resolved, and the remaining gap in the Minor finding is small, well-understood,
+and has an obvious, narrow fix (one more guard line, mirroring the one that already
+exists in `js/practice.js`). Regression suite is otherwise clean (19/21, with the 2
+failures confirmed pre-existing and unrelated).
+
+### Files referenced (follow-up)
+
+- Commit under test: `5435b4f` (`js/practice.js`, `js/match.js`, `js/battle.js`)
+- Sandbox-limitation reconfirmation: `check-visibility-sandbox.js` (scratchpad)
+- Finding 1 re-check scripts (scratchpad): `qa-timer-real-backgrounding-retest.js`,
+  `qa-timer-visibility-direct.js`
+- Finding 1 fix code re-verified:
+  `/Users/jungjongchan/Desktop/company/js/practice.js` (`checkTimerExpiry`,
+  `handleVisibilityOrFocusRegain`, `init`)
+- Finding 2 re-check scripts (scratchpad): `qa-mode-guard-direction-a.js`,
+  `qa-mode-guard-direction-b.js`, `qa-mode-guard-direction-c-third-path.js`,
+  `qa-mode-guard-direction-c-with-ws.js`
+- Finding 2 fix code re-verified: `/Users/jungjongchan/Desktop/company/js/practice.js`
+  (`start()`'s `Battle.isActive()` guard, `isActive()`),
+  `/Users/jungjongchan/Desktop/company/js/match.js` (`onBothPresent()`,
+  `handleTurnStarted()`'s `Practice.isActive()` guards)
+- Finding 2 new gap located in: `/Users/jungjongchan/Desktop/company/js/battle.js`
+  (`start()` — no internal guard), confirmed via
+  `/Users/jungjongchan/Desktop/company/server/src/ws/server.js` (`onAction()`,
+  `onEndTurn()`) for the downstream real-relay consequence reasoning
+- Regression suite: all 21 scripts in `server/scripts/` (excluding `migrate.js`); the
+  2 pre-existing failures cross-checked against parent commit `6b26fc4` via a
+  temporary `git worktree` (removed after use)
+- `server/.env` reconfirmed pointing at local Postgres (`neoncore_dev`) before any
+  testing began; migrations reconfirmed already applied locally.
