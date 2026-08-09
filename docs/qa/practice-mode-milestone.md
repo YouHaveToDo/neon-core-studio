@@ -970,3 +970,437 @@ loose.
   (`auto-end-turn-timer-sync-test.js`, `frozen-client-turn-timeout-test.js`)
 - `server/.env` reconfirmed pointing at local Postgres (`neoncore_dev`) before any
   testing began; migrations reconfirmed already applied locally.
+
+---
+
+## Follow-up verification #3 — independent re-check of commit `52f1d72` (2026-08-10)
+
+**Scope:** independently re-verifying `52f1d72` ("Move mode guard into the shared
+`AL.startMatch()` root"), the fix for the FOURTH path (`AL.startMatch()` called
+directly, bypassing both `Practice.start()`'s and `Battle.start()`'s guards) found in
+follow-up #2 above. This is the third consecutive round of the same class of finding, so
+per this round's task, the same scrutiny was applied once more — including, per explicit
+instruction, stress-testing the `state.screen` boundary logic itself (not just re-running
+the four known repros) and one more adversarial pass for a fifth path. Same rigor as all
+three prior passes: real spawned `server/` process, real local Postgres
+(`server/.env`'s `DATABASE_URL` reconfirmed pointing at
+`postgresql://postgres@localhost:5432/neoncore_dev` before any testing — migrations
+reconfirmed already applied via `node scripts/migrate.js`, never touched production),
+real static file server serving the repo root, real client bundle, Playwright
+(`chromium` 1.62.1, scratchpad-local install, `NODE_PATH`-injected, not a repo
+dependency) driving genuine multi-account UI flows end-to-end, plus `page.on('websocket')`
+frame capture for every test in this round (not just the ones that historically leaked),
+plus real card-by-card gameplay (via `AL.selectCard()`/`AL.targetOpponent()`/`AL.endTurn()`
+calls that mirror real click behavior) to drive matches to genuine conclusions rather than
+only ever injecting state.
+
+All scripts referenced below live only in this session's scratchpad
+(`/private/tmp/.../scratchpad/qa-followup3/`), not the repo.
+
+### Updated verdict
+
+**The specific fix under test (`52f1d72`) is genuinely solid — all four cumulative
+cross-mode-corruption paths are now blocked, the screen-boundary logic behaves correctly
+in both directions (blocks the illegitimate case, does not break the legitimate replay
+case), and a fifth adversarial path was found but is meaningfully different in kind from
+the first four (see below), not "yet another caller of the same gap." However, this
+round's screen-boundary stress-testing (specifically, driving a REAL practice match to a
+real conclusion and clicking the REAL "다시 연습하기" replay button, exactly what the task
+asked to verify) surfaced a separate, unrelated, and more serious bug: the AI's own §3.3
+turn-1 attack lock is completely broken whenever the AI is the genuinely-first player in
+practice mode, deterministically confirmed (3/3 isolated repro trials, 100% reproducible,
+not flaky) and root-caused to a parameter-semantics inversion between `js/practice.js` and
+`js/ai.js` that has been present, unchanged, since the very first practice-mode-AI commit
+(`8255845`) — i.e., pre-dating and completely unrelated to the mode-guard fix under test
+in this round, but directly contradicting a claim in the original milestone QA report's own
+"What passed" section. This bug is legitimately reachable through completely normal
+gameplay (no devtools needed) roughly half the time, which changes this round's overall
+bottom line even though the guard fix itself checks out cleanly.**
+
+### Test 1 — EXACT original repro: CONFIRMED fixed
+
+Direct `AL.startMatch()` console call during a live, real practice match (not the whole
+match torn down and rebuilt — the exact repro that found the fourth path last round).
+`mode-guard-followup3.js`, Test 1:
+
+```
+PASS  precondition: real practice match live on battle screen (got battle)
+PASS  AL.startMatch() returned undefined (early-return guard path, not a value) (got undefined)
+PASS  opponent name UNCHANGED (before=연습 상대, after=연습 상대)
+PASS  HP totals UNCHANGED (before p=50/o=50, after p=50/o=50)
+PASS  turn UNCHANGED (before=player, after=player)
+PASS  hand length UNCHANGED -- no re-deal happened (before=5, after=5)
+PASS  screen UNCHANGED (before=battle, after=battle)
+PASS  Practice.isActive() still true (got true)
+PASS  no WS frames sent (got [])
+PASS  no uncaught page errors (got [])
+```
+
+Zero state mutation of any kind, confirmed field-by-field (not just the one field the prior
+round happened to check) — this is a clean, complete block, not a partial one.
+
+### Test 2 — Direction A recheck: CONFIRMED still fixed
+
+Real two-account PvP match, forced `Practice.start()` on top of it. `Practice.start()`
+refused; real match's opponent name, HP, all untouched. No uncaught errors.
+
+### Test 3 — Direction B recheck: CONFIRMED still fixed
+
+Host leaves a real room open, forces a real practice match over it (no `leave_room` sent),
+a real third account joins the abandoned room. `Practice.isActive()` stayed `true`
+throughout; the live practice match's opponent name/turn were unchanged by the intruding
+real-match traffic.
+
+### Test 4 — Third path (`Battle.start()` direct call) recheck: CONFIRMED still fixed, including WS-frame capture
+
+Forced `Battle.start('forced-account-id', null)` over a live practice match, then a real
+click on the real End Turn button, with WS frame capture armed around the whole window:
+
+```
+PASS  precondition: Battle.isActive() is false before the forced call (got false)
+PASS  Battle.start() refused to run (got false)
+PASS  NO outgoing WS frames after Battle.start() refused + real practice End Turn click (got [])
+PASS  no uncaught page errors (got [])
+```
+
+### Test 5 — Screen-boundary stress: legitimate replay from a genuinely-concluded VICTORY screen works correctly (not just "illegitimate case blocked")
+
+This is the task's explicit item 3 ask: does calling `startMatch()` at the exact moment
+`state.screen` is `'victory'`/`'defeat'` (the legitimate replay case) still work, not just
+"does the guard block the bad case." Rather than injecting state, this drove a **real
+practice match to a genuine conclusion via real card plays** (`AL.selectCard()`/
+`AL.targetOpponent()`/`AL.endTurn()` calls, the same functions real clicks invoke), then
+clicked the real `#btn-practice-again-victory` button:
+
+```
+PASS  real match reached a genuine conclusion via real card plays (got resultScreen=victory)
+PASS  practice replay button (#btn-practice-again-victory) is visible on the real result screen
+PASS  legit replay click DID start a fresh match (screen transitioned to 'howto', got howto)
+PASS  fresh match reached the real battle screen after dismissing howto (got battle)
+PASS  fresh match has a real, freshly-initialized opponent (got 연습 상대)
+PASS  fresh match HP correctly reset to 50/50 (got p=50 o=50)
+PASS  fresh match hand correctly re-dealt to 5 cards (got 5)
+PASS  no uncaught page errors across the whole match+replay flow (got [])
+```
+
+Confirms `startMatch()`'s guard (`state.screen === 'battle' || state.screen === 'howto'`)
+correctly treats a real, HP-confirmed match conclusion's resulting `'victory'`/`'defeat'`
+screen as "safe to replay from" — the legitimate path is not collateral damage from the
+fix. (Re-run twice more for determinism; see Test 5 note under "A separate bug surfaced by
+this exact test" below — one of the three runs' HP-reset assertion failed, but for a reason
+proven unrelated to the guard itself.)
+
+### Test 6 — Rapid DOUBLE-CLICK on the replay button at the victory screen: guard does not break the legitimate race
+
+Fired two real `.click()` calls on `#btn-practice-again-victory` with zero event-loop turns
+between them (`btn.click(); btn.click();` inside one `page.evaluate()`, the same
+tightest-possible-race technique the original QA pass used for the room-list race):
+
+```
+PASS  after double-click, screen is a single valid post-replay state, not stuck (got howto)
+PASS  opponent correctly re-initialized exactly once, not corrupted by the double call (got 연습 상대)
+PASS  player HP correctly reset to exactly 50 (not double-reset or partial) (got 50)
+PASS  reaches real battle screen cleanly after the double-click race (got battle)
+PASS  hand has exactly 5 cards, not 10 (would indicate startMatch() ran twice and drew twice) (got 5)
+PASS  no uncaught page errors from the double-click race (got [])
+```
+
+The second click's `Practice.restart()` → `Practice.start()` → `AL.startMatch()` call
+lands while `state.screen` is already `'howto'` (the first click's own transition,
+synchronous) and is correctly refused by the guard — exactly one match starts, not a
+half-applied mix of two.
+
+### Test 7 — 'howto' inclusion: confirmed there is no legitimate path that needs unblocking
+
+Task item 3's second half: is there a legitimate scenario where a real `startMatch()` call
+should be allowed to proceed while `state.screen === 'howto'`, that this fix incorrectly
+blocks? Checked both statically and dynamically:
+
+- **Static (index.html/js/ui.js):** `#btn-restart-victory`/`#btn-practice-again-victory`/
+  `#btn-restart-defeat`/`#btn-practice-again-defeat` (the only 4 UI elements that can ever
+  trigger a `startMatch()` call) live inside `#screen-victory`/`#screen-defeat`, separate
+  `<section class="screen">` elements from `#screen-howto` — `js/ui.js`'s `render()` calls
+  `Screens.show('screen-' + state.screen)`, a mutually-exclusive single-screen swap. There
+  is no DOM state in which `#screen-howto` and either result screen are both visible/
+  reachable at once.
+- **Dynamic** (`mode-guard-followup3.js`, Test 7): reopened Howto mid-match via the real
+  "?" button (`howtoContext` correctly becomes `'reopen'`), then checked the actual
+  rendered DOM:
+  ```
+  PASS  mid-match reopened Howto correctly enters screen='howto'/context='reopen'
+  PASS  #screen-victory and #screen-defeat are both hidden while on the reopened howto
+        screen -- no DOM path to either replay button
+  PASS  closing reopened howto correctly returns to 'battle' (real live match undisturbed)
+  ```
+
+No legitimate path was found or is architecturally possible today. The fix's own doc
+comment's claim ("'battle'/'howto' together mean a match is currently live") holds up
+under both static and dynamic scrutiny.
+
+### Test 8 — FIFTH adversarial path found: `AL.endMatchByResult()` can forge the screen transition the guard trusts
+
+Per this task's explicit instruction not to assume the fix is now exhaustive: is there a
+way to make `state.screen` become `'victory'`/`'defeat'` *without* a real match actually
+ending, and then chain a `startMatch()` call through the now-reopened guard window?
+
+`js/state.js`'s `endMatchByResult()` — the function `js/battle.js` calls in reaction to a
+real relay `match_ended` message — is itself publicly exposed on `AL` and callable directly.
+Called directly (bypassing its only real caller, the same "call a real function via
+devtools instead of through its normal trigger" pattern every prior path in this doc used),
+it unconditionally sets `state.screen` to `'victory'`/`'defeat'` with **no check that either
+side's HP is actually 0** (`mode-guard-followup3.js`, Test 8):
+
+```
+PASS  precondition: a genuinely live, unfinished practice match (neither side at 0 HP)
+      (got {"screen":"battle","playerHp":50,"opponentHp":50,"matchResult":null})
+PASS  AL.endMatchByResult('win') alone (no HP change) DOES force screen to 'victory' with
+      neither side actually at 0 HP (got screen=victory, playerHp=50, opponentHp=50)
+PASS  chained AL.startMatch() after the forged endMatchByResult() call DOES succeed and
+      overwrite state (opponentName after=INTRUDER-VIA-FORGED-END) -- confirms the
+      screen-based guard's "victory/defeat means a real match genuinely ended" assumption
+      can be forged by a different exposed function
+PASS  no WS frames leaked from this chain either (self-corruption only, same tier as path 4)
+PASS  no uncaught page errors (got [])
+```
+
+**Why this is real but is NOT rated/treated the same as "yet another instance of the same
+gap" (findings 1-4):** unlike the first four paths — each of which was a different *caller
+of the same underlying mutator* that a plausible future legitimate code path could
+realistically reintroduce (a new screen, a reconnect flow, a new caller of
+`Battle.start()`, etc.) — this fifth path requires forging a **second, unrelated function's**
+result first (`endMatchByResult()`, which itself has no HP/legitimacy check of its own,
+a real gap in its own right, separate from anything the mode-guard commits touched). It is
+also one level further from "a future legitimate caller could stumble into this" than paths
+1-4 were: paths 1-4 were all single direct calls to a function whose whole *purpose* is to
+start a match; this path requires first calling a function whose purpose is to react to a
+match ending, with a fabricated result, specifically to manufacture the precondition the
+guard trusts. Same devtools-only reachability tier as every other finding in this document,
+same "self-corrupts only the attacking client, no WS leak" consequence tier as the fourth
+path — not escalating severity, but real, and worth recording as a reminder that a
+screen-value check is fundamentally a proxy for "is a match really over," not the thing
+itself, and any other function that can set that proxy without the real underlying
+condition being true can reopen the same door. (Also worth noting for completeness, though
+not tested as a separate "path" here since it's not really a distinct *mechanism*: `AL.state`
+itself is a live, directly-mutable object reference exposed on the public `AL` API — literally
+any field, including `state.screen` itself, can be set directly via
+`AL.state.screen = 'victory'` from devtools with no function call at all. This is a
+structural property of every field in this app, not something specific to the mode guard,
+and no function-level guard can ever close it — noted for completeness/honesty about the
+actual trust boundary here, not as an actionable item.)
+
+### A separate, more serious bug surfaced incidentally by Test 5's exact scenario: the AI's turn-1 attack lock is broken when the AI goes first in practice mode
+
+**This is NOT a mode-guard finding and is unrelated to `52f1d72`.** It surfaced because Test
+5 (per this round's explicit task item 3) drove a *real* practice match through a *real*
+"다시 연습하기" replay, which — unlike the match's original `Practice.start()` call from the
+lobby — performs a **fresh, un-forced coin flip every time** (`js/practice.js`'s `restart()`
+calls `start()` without an explicit `isFirstPlayer`, by design, "exactly like a real new
+match would"). On one of three otherwise-identical re-runs of Test 5, the freshly-replayed
+match's `AL.state.player.hp` was `36` immediately after the replay's How-to-Play overlay was
+dismissed — i.e., **the AI dealt 14 damage before the player had taken a single action**,
+on what should have been a locked first turn.
+
+**Deterministic, isolated, root-caused confirmation** (`turn1-lock-deep-dive.js`, run 3
+times, 3/3 reproductions, not flaky):
+
+- **Scenario B — AI explicitly set first (`isFirstPlayer: false`), mixed deck (10× Strike +
+  10× Defend):**
+  ```
+  PASS  precondition: AI's own turn 1 (isFirstPlayer:false) (got turn=opponent)
+  FAIL  SPEC REQUIREMENT (§6.3.1/§7.2, CEO decision): the AI, as the genuine first player,
+        must deal 0 damage on its own real first turn -- player HP must stay at 50
+        (got 32 / 38 / 36 across the 3 runs)
+  ```
+  Genuinely first-player AI deals real, unanswered damage (12-18 HP, i.e. 24-36% of max HP)
+  on its true turn 1, in every one of 3 trials.
+- **Scenario A — player explicitly set first (`isFirstPlayer: true`), same deck, for
+  comparison:** the AI's own actual first turn (the match's 2nd turn boundary, since player
+  went first) correctly dealt 0 damage in all 3 trials — but this turns out to be the
+  *other* half of the same bug (see root cause below), not evidence the lock works
+  correctly in general.
+
+**Root cause, confirmed by reading the code (not just inferred from behavior):**
+`js/practice.js`'s `start()` computes a single `isFirstPlayer` boolean (its own established
+meaning throughout this codebase: "does the real, local player go first" — this exact value
+is what gets passed to `AL.startMatch({ isFirstPlayer, ... })`, whose own semantics are
+unambiguous: `state.turn = isFirstPlayer ? 'player' : 'opponent'`). `start()` then passes
+this **exact same, un-inverted** value into `AI.createBrain(deckIds, { isFirstPlayer, ... })`
+— but `js/ai.js`'s own doc comment for that parameter states the opposite meaning: `//
+isFirstPlayer -- whether AL.startMatch() made the AI go first`, and its code
+(`blockAttack = isFirstPlayer && turnsTaken === 0`) is written consistently with *that*
+(inverted) meaning. The two modules disagree about what this one shared field name means,
+and the actual production glue code (`js/practice.js`) never reconciles the difference.
+
+**This is confirmed to be a real, known, intended contract by the programmer's own unit
+test** (`server/scripts/practice-mode-ai-test.js`, section 2a/2b) — which manually inverts
+the value at every call site specifically to get correct behavior in isolation:
+```js
+freshMatch(AL, { isFirstPlayer: false, deck: [...] });
+// isFirstPlayer:false means the LOCAL player is second -> the AI (opponent) goes first.
+...
+const brain = AI.createBrain([...], {
+  isFirstPlayer: true, pacingMs: 0, maxIterations: 10,   // <-- manually inverted here
+});
+```
+The unit test's own comment demonstrates the test author understood the two meanings are
+opposite and correctly inverted the value at the call site — but this inversion was never
+carried into the real production caller (`js/practice.js`), so the unit test (which tests
+`AI.createBrain()` in isolation with an already-correct, pre-inverted parameter) passes
+cleanly and gives false confidence, while the real integrated app is broken. This is a
+textbook "unit test validates the component correctly, but the integration wiring the real
+app actually uses is wrong" gap — exactly the class of bug that requires live/E2E testing to
+catch, which is presumably why it survived three prior QA rounds' regression-suite re-runs
+(which only re-ran the existing, already-passing unit test) without being caught with
+certainty.
+
+**This also appears to conflict with a specific claim in the original milestone QA report**
+(this document, "What passed" §3): *"(b) a real, unscripted browser match where the AI
+happened to go first: player HP was unchanged after the AI's entire first turn, confirmed
+via `AL.state`."* Given this round's deterministic, repeated, code-corroborated
+reproduction, that earlier single live-browser observation was very likely either a
+coincidental hand draw with no immediately-affordable Attack card, a misread of which side
+actually went first, or a state of the code that has since changed — I cannot reconcile it
+with what the code and 3/3 deterministic trials show today, and flag the discrepancy
+honestly rather than silently overriding the earlier claim without comment.
+
+**Confirmed via `git blame`:** both the `js/practice.js` call site and the mismatched
+`js/ai.js` doc comment/logic have been present, byte-for-byte unchanged, since commits
+`8255845` (AI engine) and `9f574e2` (lobby wiring) — the very first practice-mode
+commits — meaning this is **not** a regression from `52f1d72` or any of the mode-guard
+commits; it predates all of them and is orthogonal to this round's actual assignment.
+
+**Severity: Major.** Reasoning, calibrated the same way this document already rates its one
+other Major finding (the backgrounded-tab timer): this is a real, deterministically
+reproducible break of one of only two design points the CEO explicitly overrode the
+original recommendation on (§0 decision, §6.3.1/§7.2's turn-1 attack lock, "선공을 하는
+플레이어는 첫 턴에는 공격을 못하게 해야겠다") — and unlike every other finding in this
+document's three follow-up rounds, **it requires no devtools, no forced call, and no
+adversarial setup whatsoever** — it happens on a genuinely ordinary coin-flip outcome that
+occurs on roughly half of all real practice matches (and on every single "다시 연습하기"
+restart, independent of the previous match's outcome, since restart always re-flips). Not
+rated Blocker because, like Finding 1, there is no crash/state-corruption and the match
+remains fully playable — it's a fairness/feel violation, not a hard break — but it directly
+undercuts the specific headline guarantee (§3.3: "AI가 선공일 때도 동일하게 첫 턴 공격
+불가") this milestone's own design doc calls out by name as a CEO-confirmed requirement,
+in the single most common way a real player would ever encounter it (just playing/replaying
+practice mode normally).
+
+**Suggested area to look at (not a fix, matching this document's convention):**
+`js/practice.js`'s `start()`, the one call site that passes `isFirstPlayer` into
+`AI.createBrain()` — needs to pass the AI-relative value (`!isFirstPlayer`, given
+`AI.createBrain()`'s documented contract, or alternatively align `js/ai.js`'s contract to
+match what's actually passed and fix the semantic there instead) rather than the
+player-relative value `AL.startMatch()` correctly uses. Either module's contract could be
+the one that changes — a call for the programmer, not prescribed here.
+
+### Full regression suite — fresh run, 19/21 clean, same 2 pre-existing/unrelated failures as both prior follow-up rounds
+
+Ran all 21 scripts in `server/scripts/` (excluding `migrate.js`) fresh against a
+freshly-migrated local Postgres (migrations reconfirmed already applied before running):
+
+- **19/21 pass clean:** `smoke-test.js`, `deck-smoke-test.js`, `ws-smoke-test.js`,
+  `room-list-smoke-test.js`, `pvp-smoke-test.js`, `deck-size-relay-smoke-test.js`,
+  `double-disconnect-smoke-test.js`, `pull-smoke-test.js`, `practice-ink-smoke-test.js`,
+  `practice-mode-ai-test.js` (passes cleanly, per above — it validates `AI.createBrain()`
+  in isolation with an already-manually-inverted parameter, so it does not exercise the
+  integration bug found in this round), `expansion-cards-test.js`,
+  `expansion-deck-ownership-test.js`, `ink-award-smoke-test.js`, `match-history-smoke-test.js`,
+  `report-result-race-smoke-test.js`, `weaken-status-test.js`,
+  `expansion-card-battle-ui-smoke-test.js`, `room-list-ui-fill-race-test.js`,
+  `shop-ui-smoke-test.js`.
+- **2/21 fail, identical signature to both prior follow-up rounds:**
+  `auto-end-turn-timer-sync-test.js` (2 assertion failures, computed `~23994`-`23999ms`
+  deadline where `~8000ms` was expected, plus the same `waitFor` timeout crash in Scenario
+  C) and `frozen-client-turn-timeout-test.js` (15 assertion failures, same
+  server-driven turn-reconciliation scenarios). Neither script touches practice mode or any
+  code this round's fix (`52f1d72`) or investigation touched — both were already
+  independently cross-checked against a parent-commit `git worktree` in follow-up #1 and
+  reconfirmed present with an identical signature in follow-up #2; not re-litigated a third
+  time since nothing relevant to them has changed and their signature (exact failure
+  counts, exact computed values) is unchanged again this round.
+- **Minor environment hygiene note (not a code finding):** `expansion-card-battle-ui-smoke-test.js`,
+  `room-list-ui-fill-race-test.js`, and `shop-ui-smoke-test.js` each attempt to spawn their
+  own dedicated server process on port 3001 and logged an `EADDRINUSE` error from that child
+  process, because this session already had its own manually-started `server/` process bound
+  to port 3001 for the earlier tests in this round. All three scripts still completed with
+  `ALL PASS`/exit 0 (they evidently tolerate their own spawn failing and proceed against
+  whatever is already listening) — flagging only so this doesn't get mistaken for a real
+  regression by anyone re-reading this log later, same spirit as the port-8080 hygiene note
+  in follow-up #1.
+
+### Bottom line for the CEO — on this round's fix, AND a genuinely final verdict on the whole practice-mode milestone
+
+**On `52f1d72` specifically: genuinely fixed, high confidence.** All four cumulative
+cross-mode-corruption repros (Direction A, Direction B, the third path/WS-leak, and this
+round's exact original fourth-path repro) are solidly blocked, field-by-field, with zero
+state mutation and zero WS leakage. The screen-boundary logic the fix relies on was
+stress-tested in both directions per this round's explicit ask: it correctly blocks the
+illegitimate case AND does not break the legitimate replay case (real match → real victory
+screen → real "다시 연습하기" click → real fresh match, HP/hand/opponent all correctly
+reset, including under a genuine double-click race). The `'howto'` inclusion was checked
+both statically and dynamically and has no legitimate path that needs unblocking. A fifth
+adversarial path was found (`endMatchByResult()` forging the screen transition the guard
+trusts) but is a different, one-level-removed class of gap from the four found across
+rounds 1-3 — not "the same whack-a-mole pattern continuing a fourth time." Putting the
+guard in the shared mutator, as this commit did, was the right call and it holds up.
+
+**On the whole practice-mode milestone, now that this specific thread is closed: not
+ready to ship as fully complete, but for a reason this round's task did not originally
+target.** To state this plainly, since three rounds of "found one more gap" makes it
+important not to either inflate remaining doubt or paper over a real one:
+
+- **The cross-mode state-corruption class of bug (original Finding 2 and all of its
+  follow-on paths) is now genuinely, solidly closed.** This does not need another round of
+  the same kind of scrutiny — four rounds of adversarial pressure on this exact mechanism
+  have converged on "fixed," and the one further gap found this round (the fifth path) is
+  categorically different, not a sign the same fix is still leaking.
+- **Finding 1 (the backgrounded-tab timer, from the very first QA pass) remains fixed** per
+  follow-up #1's high-confidence direct-mechanism verification; nothing in this round
+  touched that code and nothing here casts doubt on it.
+- **A new Major finding stands in the way of a clean "ready" verdict:** the AI's turn-1
+  attack lock is broken for roughly half of all real practice matches (and every
+  "다시 연습하기" restart), in a way any real player can hit through completely ordinary
+  play, no devtools required — directly contradicting one of the milestone's two explicit
+  CEO-overridden design decisions, in the single most common way a player would encounter
+  it. This was not on this round's original task list, but it was found while faithfully
+  executing the task's own explicit instruction to verify the legitimate replay path
+  actually works correctly, not just that the illegitimate path is blocked — and it is
+  serious enough, common enough, and clearly enough root-caused that reporting it as "out of
+  scope, someone else's problem" would not serve the CEO well.
+
+**Recommendation:** the mode-guard work (this round's actual assignment) can be considered
+done — no further rounds of "find one more path" are warranted for that specific class of
+bug. The milestone as a whole should not ship until the newly-found turn-1-lock integration
+bug is fixed and re-verified; it is a genuine regression against explicit CEO-approved
+design intent, reliably reproducible through ordinary play, not a devtools-only edge case
+like everything else in this document's mode-guard thread. Recommend routing this new
+finding back to the programmer the same way Finding 1 and Finding 2 originally were.
+
+### Files referenced (follow-up #3)
+
+- Commit under test: `52f1d72` (`js/state.js`)
+- Test 1-4, 7 scripts: `mode-guard-followup3.js` (scratchpad,
+  `/private/tmp/.../scratchpad/qa-followup3/`)
+- Test 5-6 (screen-boundary/replay) scripts: `mode-guard-followup3.js` (Tests 5, 6)
+- Test 8 (fifth path) script: `mode-guard-followup3.js` (Test 8)
+- Fix code re-verified: `/Users/jungjongchan/Desktop/company/js/state.js` (`startMatch()`'s
+  new `state.screen === 'battle' || state.screen === 'howto'` guard, `openHowto()`,
+  `closeHowto()`, `winMatch()`, `loseMatch()`, `endMatchByResult()`)
+- Fifth-path gap located in: `/Users/jungjongchan/Desktop/company/js/state.js`
+  (`endMatchByResult()` — no HP/legitimacy check of its own before forcing
+  `state.screen`)
+- New, unrelated turn-1-lock bug: deep-dive script `turn1-lock-deep-dive.js` (scratchpad,
+  same directory), root cause in
+  `/Users/jungjongchan/Desktop/company/js/practice.js` (`start()`'s
+  `AI.createBrain(deckIds, { isFirstPlayer, ... })` call, passing the player-relative value
+  unchanged) vs. `/Users/jungjongchan/Desktop/company/js/ai.js` (`createBrain()`'s doc
+  comment and `blockAttack` logic, which expect the AI-relative value), cross-checked
+  against `/Users/jungjongchan/Desktop/company/server/scripts/practice-mode-ai-test.js`
+  (section 2a/2b, which manually inverts the value at its own call sites, confirming the
+  intended contract); confirmed present unchanged since commits `8255845`/`9f574e2` via
+  `git blame`
+- Regression suite: all 21 scripts in `server/scripts/` (excluding `migrate.js`); the 2
+  pre-existing failures match both prior follow-up rounds' already-cross-checked signature
+  exactly (`auto-end-turn-timer-sync-test.js`, `frozen-client-turn-timeout-test.js`)
+- `server/.env` reconfirmed pointing at local Postgres (`neoncore_dev`) before any testing
+  began; migrations reconfirmed already applied locally (`Migrations up to date`).
