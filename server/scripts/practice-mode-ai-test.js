@@ -326,6 +326,66 @@ function freshMatch(AL, opts) {
   }
 
   // ===========================================================================
+  // Section 2 (integration): the REAL js/practice.js -> AI.createBrain() wiring
+  // ===========================================================================
+  //
+  // 2a/2b above call AI.createBrain() directly with an already-correct,
+  // pre-inverted `isFirstPlayer` -- that's a legitimate unit test of
+  // createBrain()'s own §3.3 contract in isolation, but it does NOT exercise
+  // js/practice.js's start(), the one place in the real app that actually
+  // computes the value passed into createBrain(). A prior integration bug
+  // (docs/qa/practice-mode-milestone.md, follow-up #3) had practice.js
+  // passing its player-relative `isFirstPlayer` straight into createBrain()
+  // unchanged, even though createBrain()'s own doc comment/blockAttack logic
+  // expect the AI-relative sense -- silently disabling the turn-1 lock
+  // whenever the AI was genuinely first, while 2a/2b kept passing because
+  // they never went through practice.js's start() at all. These two tests
+  // close that gap by driving the lock entirely through Practice.start()
+  // (opts.isFirstPlayer in its documented player-relative sense, exactly like
+  // a real caller), so they fail against the buggy wiring and pass once the
+  // js/practice.js call site correctly inverts the value.
+
+  console.log('\n== Section 2 (integration): js/practice.js -> AI.createBrain() wiring, the real production call path ==');
+
+  console.log('-- 2f: [INTEGRATION] AI as the genuine first player (Practice.start({isFirstPlayer:false})) deals 0 damage on its real first turn --');
+  {
+    const { AL, Practice } = loadModules();
+    Practice.init();
+    Practice.start(['strike', 'strike', 'strike', 'strike', 'strike', 'defend'], {
+      isFirstPlayer: false, // player-relative, same meaning as AL.startMatch(): the LOCAL player is NOT first -> the AI is genuinely first.
+      aiPacingMs: 0,
+    });
+    AL.closeHowto();
+    assert(AL.state.turn === 'opponent', `sanity: the AI is genuinely first (got turn=${AL.state.turn})`);
+    const playerHpBefore = AL.state.player.hp;
+    const finished = await waitUntil(() => AL.state.turn === 'player', 10, 2000);
+    assert(finished, "the AI's genuine first turn, run through the real Practice.start() wiring, completed and returned control to the player");
+    const dealt = playerHpBefore - AL.state.player.hp;
+    assert(dealt === 0, `REGRESSION CHECK (docs/qa/practice-mode-milestone.md follow-up #3): the AI's real first turn, driven through Practice.start() rather than a direct AI.createBrain() call, deals 0 damage -- confirms the isFirstPlayer inversion at the js/practice.js call site is correct (got ${dealt} damage dealt)`);
+    Practice.stop();
+  }
+
+  console.log('-- 2g: [INTEGRATION] AI as the genuine SECOND player (Practice.start({isFirstPlayer:true})) is NOT locked on its real first turn --');
+  {
+    const { AL, Practice } = loadModules();
+    Practice.init();
+    Practice.start(['strike', 'strike', 'strike', 'strike', 'strike', 'defend'], {
+      isFirstPlayer: true, // the LOCAL player is first -> the AI is genuinely second.
+      aiPacingMs: 0,
+    });
+    AL.closeHowto();
+    assert(AL.state.turn === 'player', `sanity: the local player is genuinely first (got turn=${AL.state.turn})`);
+    AL.state.player.hand = [];
+    AL.endTurn(); // player's turn 1 ends with nothing played -> the AI's own real first turn (as the second player) begins
+    const playerHpBefore = AL.state.player.hp;
+    const finished = await waitUntil(() => AL.state.turn === 'player', 10, 2000);
+    assert(finished, "the AI's genuine first turn as the second player, run through Practice.start(), completed and returned control to the player");
+    const dealt = playerHpBefore - AL.state.player.hp;
+    assert(dealt > 0, `the AI, as the genuine SECOND player, is free to attack on its own first turn when driven through the real Practice.start() wiring -- the lock must not accidentally bind the wrong side (got ${dealt} damage dealt, expected > 0)`);
+    Practice.stop();
+  }
+
+  // ===========================================================================
   // Section 3: local player-turn timer (design doc §5) via js/practice.js
   // ===========================================================================
 

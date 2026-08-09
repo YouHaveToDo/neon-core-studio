@@ -132,7 +132,15 @@ const Practice = (() => {
     lastOpponentName = opponentName;
 
     brain = AI.createBrain(deckIds, {
-      isFirstPlayer,
+      // js/ai.js's createBrain() documents `isFirstPlayer` as AI-relative
+      // ("whether AL.startMatch() made the AI go first"), while the local
+      // `isFirstPlayer` above is player-relative ("does the real, local
+      // player go first" -- the exact same value AL.startMatch() takes).
+      // The two are always opposite for a 1v1 match, so this must be
+      // inverted here -- passing the un-inverted value silently disabled
+      // the §3.3 turn-1 attack lock whenever the AI was genuinely first
+      // (docs/qa/practice-mode-milestone.md, follow-up #3).
+      isFirstPlayer: !isFirstPlayer,
       rng: opts.aiRng,
       pacingMs: opts.aiPacingMs,
       sleepFn: opts.aiSleepFn,
