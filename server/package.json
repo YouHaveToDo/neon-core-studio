@@ -16,7 +16,8 @@
     "pvp-smoke-test": "node scripts/pvp-smoke-test.js",
     "deck-size-relay-smoke-test": "node scripts/deck-size-relay-smoke-test.js",
     "double-disconnect-smoke-test": "node scripts/double-disconnect-smoke-test.js",
-    "pull-smoke-test": "node scripts/pull-smoke-test.js"
+    "pull-smoke-test": "node scripts/pull-smoke-test.js",
+    "practice-ink-smoke-test": "node scripts/practice-ink-smoke-test.js"
   },
   "dependencies": {
     "argon2": "^0.41.1",
