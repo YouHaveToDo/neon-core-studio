@@ -180,13 +180,36 @@ document.addEventListener('DOMContentLoaded', () => {
   // asks for a "rematch this exact opponent" shortcut, just "다시 플레이 →
   // 덱 선택 화면으로 복귀". "메인 메뉴" returns to the post-login landing
   // screen. Both first reset js/battle.js's per-match timers/overlay state
-  // so nothing from the just-finished match leaks into the next one.
-  function playAgain() { Battle.reset(); Match.playAgain(); }
-  function backToMainMenu() { Battle.reset(); App.returnToMainMenu(); }
+  // (and, defensively, js/practice.js's -- harmless no-op whenever the match
+  // that just ended wasn't a practice one) so nothing from the just-finished
+  // match leaks into the next one.
+  function playAgain() { Battle.reset(); Practice.stop(); Match.playAgain(); }
+  // "메인 메뉴" is the SAME button/handler for both a real-PvP and a
+  // practice match end (docs/design/practice-mode-proposal.md §7.4's third
+  // button) -- App.returnToMainMenu() already re-fetches the Ink balance
+  // (refreshInkBalance(), see js/main.js above) every time it's called, so a
+  // practice match's Ink award is reflected on the main menu with no
+  // separate wiring needed here.
+  function backToMainMenu() { Battle.reset(); Practice.stop(); App.returnToMainMenu(); }
   document.getElementById('btn-restart-victory').addEventListener('click', playAgain);
   document.getElementById('btn-restart-defeat').addEventListener('click', playAgain);
   document.getElementById('btn-mainmenu-victory').addEventListener('click', backToMainMenu);
   document.getElementById('btn-mainmenu-defeat').addEventListener('click', backToMainMenu);
+
+  // Practice-mode-only match-end buttons (docs/design/practice-mode-
+  // proposal.md §7.4) -- only ever visible when js/practice.js's own
+  // handlePracticeMatchEnd() showed them for a practice match that just
+  // ended (see that file). "다시 연습하기" restarts immediately with the
+  // same mirrored deck (Practice.restart(), no deck-select/lobby detour);
+  // "로비로 돌아가기" re-enters the room list directly (Match.returnToLobby(),
+  // skipping deck-select same as "다시 연습하기" skips it) in case a real
+  // opponent has opened a room in the meantime.
+  function practiceAgain() { Battle.reset(); Practice.restart(); }
+  function practiceReturnToLobby() { Battle.reset(); Practice.stop(); Match.returnToLobby(); }
+  document.getElementById('btn-practice-again-victory').addEventListener('click', practiceAgain);
+  document.getElementById('btn-practice-again-defeat').addEventListener('click', practiceAgain);
+  document.getElementById('btn-practice-lobby-victory').addEventListener('click', practiceReturnToLobby);
+  document.getElementById('btn-practice-lobby-defeat').addEventListener('click', practiceReturnToLobby);
 
   // Initial paint of AL's own screens (state.screen defaults to 'start',
   // which no longer has a matching element -- this just hides every

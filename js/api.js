@@ -148,6 +148,16 @@ const API = {
     // -> 400 { error: 'insufficient_ink', message, inkBalance } (ApiError)
     // -> 409 { error: 'collection_complete', message, expansionCards } (ApiError)
     pull: () => apiRequest('/api/economy/pull', { method: 'POST' }),
+    // POST /api/economy/practice-result (server/src/routes/economy.js,
+    // docs/design/practice-mode-proposal.md §6.5/§7.2) -- client self-reports
+    // a practice (vs-AI) match's win/loss so the server can award the
+    // reduced 4/1 Ink rate, subject to the account's daily practice cap.
+    // payload: { result: 'win'|'loss' }
+    // -> 200 { inkAwarded, inkBalance, practiceInkToday, practiceInkDailyCap }
+    // inkAwarded may be less than the nominal 4/1 (including 0) once the
+    // daily cap partially or fully applies -- always the source of truth,
+    // never assume the full amount client-side.
+    practiceResult: (result) => apiRequest('/api/economy/practice-result', { method: 'POST', body: { result } }),
   },
   rooms: {
     // -> { rooms: [ {id, hostDisplayName, createdAt: <ms epoch>}, ... ] }

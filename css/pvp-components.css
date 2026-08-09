@@ -343,8 +343,12 @@
 
 /* ==================================================== 4.8 match-end screen
    No mockup source (plan.md never assigned one) -- two buttons side by side
-   from the existing .btn/.btn-primary/.btn-secondary components. */
-.match-end-actions { display: flex; gap: 10px; justify-content: center; margin-top: 6px; }
+   from the existing .btn/.btn-primary/.btn-secondary components. flex-wrap
+   added for practice-mode-proposal.md §7.4's third button (still just these
+   same 3 existing components, no new one) so 3 Korean-label buttons don't
+   overflow .overlay-panel's 460px max-width on narrow viewports -- harmless
+   for the real-PvP 2-button case, which already fits on one line. */
+.match-end-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 6px; }
 
 /* ==================================================== 5.2 match history
    .history-header/.history-list/.result-chip/etc. lifted verbatim from

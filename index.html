@@ -636,9 +636,19 @@
 
       <div id="room-list" class="room-list"></div>
 
+      <!-- 연습 모드 진입점, 방이 있을 때 (docs/design/practice-mode-proposal.md
+           §9.2): 눈에 덜 띄는 상시 텍스트 링크 -- .lobby-back-link는
+           #btn-lobby-waiting-back에 이미 쓰인 것과 같은 "de-emphasized 링크"
+           컴포넌트(js/match.js가 방 목록이 비었는지 여부로 show/hide 토글). -->
+      <button id="btn-lobby-practice-filled" class="btn btn-secondary lobby-back-link hidden">연습 상대와 붙어보기</button>
+
       <div id="room-list-empty" class="room-list-empty hidden">
         <p>현재 열려 있는 방이 없습니다</p>
         <button id="btn-lobby-create-empty" class="btn btn-primary">+ 방 만들기</button>
+        <!-- 연습 모드 진입점, 방이 비었을 때 (§9.2): 강조된 두 번째 CTA를 기존
+             "+ 방 만들기" 옆(아래)에 나란히 추가. -->
+        <p>아직 아무도 없어요, 대신 연습 상대와 붙어볼까요?</p>
+        <button id="btn-lobby-practice-empty" class="btn btn-primary">연습 상대와 붙어보기</button>
       </div>
 
       <div id="room-list-error" class="room-list-error hidden">
@@ -676,8 +686,18 @@
       <svg class="icon icon-crown-big"><use href="#icon-crown"></use></svg>
       <h2 id="victory-title">승리!</h2>
       <p id="victory-subtitle" class="subtitle"></p>
+      <!-- Practice-mode variant (docs/design/practice-mode-proposal.md
+           §7.3-§7.4): js/practice.js overwrites #victory-title/#victory-
+           subtitle's text and swaps "다시 플레이" for the two buttons below
+           (#btn-restart-victory hidden, the other two shown) whenever a
+           practice match -- not a real PvP match -- just ended. No new
+           screen/layout: same #screen-victory shell, same .match-end-actions
+           row, just one more button (§7.4: "기존 victory/defeat 화면의 버튼
+           두 개 자리에 세 번째 버튼 하나만 얹으면 되므로"). -->
       <div class="match-end-actions">
         <button id="btn-restart-victory" class="btn btn-primary">다시 플레이</button>
+        <button id="btn-practice-again-victory" class="btn btn-primary hidden">다시 연습하기</button>
+        <button id="btn-practice-lobby-victory" class="btn btn-secondary hidden">로비로 돌아가기</button>
         <button id="btn-mainmenu-victory" class="btn btn-secondary">메인 메뉴</button>
       </div>
     </div>
@@ -694,8 +714,12 @@
       <svg class="icon icon-skull-big"><use href="#icon-skull"></use></svg>
       <h2 id="defeat-title">패배</h2>
       <p id="defeat-subtitle" class="subtitle"></p>
+      <!-- Practice-mode variant -- see #screen-victory's comment above, same
+           pattern mirrored here. -->
       <div class="match-end-actions">
         <button id="btn-restart-defeat" class="btn btn-primary">다시 플레이</button>
+        <button id="btn-practice-again-defeat" class="btn btn-primary hidden">다시 연습하기</button>
+        <button id="btn-practice-lobby-defeat" class="btn btn-secondary hidden">로비로 돌아가기</button>
         <button id="btn-mainmenu-defeat" class="btn btn-secondary">메인 메뉴</button>
       </div>
     </div>

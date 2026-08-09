@@ -38,6 +38,16 @@ const Practice = (() => {
   let currentTurnHandled = null; // last state.turn value this module already reacted to, for edge-detection (see onStateChange)
   let turnSeconds = 24; // §5.1: same 24s duration as real PvP's server timer, just client-local here -- overridable via start()'s opts for tests only
 
+  // ---- last-match memory, for "다시 연습하기" (design doc §7.4) -----------
+  // §7.4: restarting must NOT re-enter deck-select/lobby -- "이미 갖고 있는
+  // 덱 정보로 즉시 재시작". Storing just the deck + opponent label (not the
+  // full opts bag -- isFirstPlayer/turnSeconds/etc. are per-match or
+  // test-only and must NOT be replayed identically on a restart) is enough
+  // to call start() again from scratch, which itself does a fresh coin flip
+  // exactly like a real new match would.
+  let lastDeckIds = null;
+  let lastOpponentName = null;
+
   // ---- local player-turn timer (design doc §5) ------------------------------
   let timerDeadline = null;
   let timerIntervalHandle = null;
@@ -53,6 +63,23 @@ const Practice = (() => {
     el.turnTimerValue = document.getElementById('turn-timer-value');
     el.endTurnCol = document.getElementById('end-turn-col');
     el.opponentMetaRow = document.getElementById('opponent-meta-row');
+
+    // Match-end (design doc §7.3/§7.4): this module directly owns the
+    // practice-distinct title/subtitle copy + button-set swap on top of the
+    // shared victory/defeat screen js/ui.js already renders the real-PvP
+    // default text into -- same "module reaches past its own screen into a
+    // shared DOM node" pattern js/battle.js already uses for #turn-timer/
+    // #disconnect-overlay above.
+    el.victoryTitle = document.getElementById('victory-title');
+    el.victorySubtitle = document.getElementById('victory-subtitle');
+    el.defeatTitle = document.getElementById('defeat-title');
+    el.defeatSubtitle = document.getElementById('defeat-subtitle');
+    el.btnRestartVictory = document.getElementById('btn-restart-victory');
+    el.btnRestartDefeat = document.getElementById('btn-restart-defeat');
+    el.btnPracticeAgainVictory = document.getElementById('btn-practice-again-victory');
+    el.btnPracticeAgainDefeat = document.getElementById('btn-practice-again-defeat');
+    el.btnPracticeLobbyVictory = document.getElementById('btn-practice-lobby-victory');
+    el.btnPracticeLobbyDefeat = document.getElementById('btn-practice-lobby-defeat');
   }
 
   // ===========================================================================
@@ -78,6 +105,13 @@ const Practice = (() => {
     stopPlayerTimer();
 
     const isFirstPlayer = typeof opts.isFirstPlayer === 'boolean' ? opts.isFirstPlayer : Math.random() < 0.5;
+    const opponentName = opts.opponentName || '연습 상대';
+
+    // §7.4 "다시 연습하기" memory -- see field doc comment above. Recorded on
+    // every start() (not just the initial lobby-triggered one) so restart()
+    // itself remains idempotent/repeatable.
+    lastDeckIds = deckIds.slice();
+    lastOpponentName = opponentName;
 
     brain = AI.createBrain(deckIds, {
       isFirstPlayer,
@@ -90,14 +124,24 @@ const Practice = (() => {
     AL.startMatch({
       deck: deckIds,
       isFirstPlayer,
-      opponentName: opts.opponentName || '연습 상대',
+      opponentName,
       opponentDeckSize: deckIds.length,
     });
   }
 
+  // "다시 연습하기" (design doc §7.4): restart immediately with the same
+  // (mirrored) deck, no deck-select/lobby round-trip. A no-op if somehow
+  // called before any practice match has ever started (defensive only --
+  // the button that calls this is only ever visible once start() has
+  // already run at least once).
+  function restart() {
+    if (!lastDeckIds) return;
+    start(lastDeckIds, { opponentName: lastOpponentName });
+  }
+
   // Mirrors js/battle.js's reset() -- called before a fresh match (다시
-  // 연습하기 / 로비로 돌아가기, once Track C wires those buttons) so no
-  // leftover timer/brain state bleeds into the next match.
+  // 연습하기 / 로비로 돌아가기) so no leftover timer/brain state bleeds into
+  // the next match.
   function stop() {
     active = false;
     brain = null;
@@ -117,6 +161,17 @@ const Practice = (() => {
   // calls (applyRemoteAction -> emit()) that must NOT re-enter this same
   // branch while the AI's turn is already in progress.
   function onStateChange(state) {
+    // AL.startMatch() (real PvP AND practice alike) always routes through
+    // 'howto'/'first' at the very start of a fresh match (js/state.js) --
+    // that's the one state transition guaranteed to happen exactly once per
+    // match regardless of which mode it is, so it's the right hook to clear
+    // any practice-only match-end UI a PREVIOUS practice match may have left
+    // behind (see resetMatchEndUI()'s doc comment). Deliberately NOT gated
+    // on `active` -- a fresh REAL PvP match must clear this leftover state
+    // too, and `active` is specifically about the AI-turn-loop/local-timer
+    // machinery below, not this unrelated screen-hygiene concern.
+    if (state.screen === 'howto' && state.howtoContext === 'first') resetMatchEndUI();
+
     if (!active) return;
     if (state.screen !== 'battle') { stopPlayerTimer(); return; }
     if (state.matchResult) { stopPlayerTimer(); return; }
@@ -207,6 +262,94 @@ const Practice = (() => {
   }
 
   // ===========================================================================
+  // Match end -- practice-distinct result screen (design doc §6.5/§7.2-§7.4)
+  // ===========================================================================
+  //
+  // js/ui.js's renderMatchEnd() already painted the generic real-PvP text
+  // ("승리!"/"패배" + opponent-name subtitle) into #victory-title/
+  // #victory-subtitle/#defeat-title/#defeat-subtitle by the time this runs
+  // (AL.state.matchResult drives that render on every emit(), and
+  // winMatch()/loseMatch() call emit() BEFORE emitMatchEnd() -- see
+  // js/state.js). This handler overwrites that same shared DOM with the
+  // practice-specific copy + swaps which button row is visible, the same
+  // "module reaches into shared match-end DOM it doesn't otherwise own"
+  // pattern js/battle.js would use if real PvP needed anything screen-
+  // specific here (it doesn't).
+  //
+  // Guarded on `active` exactly like every other handler in this file --
+  // js/battle.js's own AL.onMatchEnd subscriber (onLocalMatchEnd) is
+  // symmetrically guarded on ITS OWN `started` flag, and the two are
+  // mutually exclusive per match (a match is either started via
+  // Battle.start() from the real matchmaking flow, or via Practice.start()
+  // from the lobby's practice entry point -- never both), so exactly one of
+  // the two subscribers ever does anything for a given match end.
+  function handlePracticeMatchEnd(result) {
+    if (!active) return;
+    showPracticeMatchEndButtons();
+
+    const titleEl = result === 'win' ? el.victoryTitle : el.defeatTitle;
+    const subtitleEl = result === 'win' ? el.victorySubtitle : el.defeatSubtitle;
+    const label = result === 'win' ? '연습 승리' : '연습 패배';
+
+    // §7.1: the "전적에 기록되지 않습니다" subcopy is unconditional (doesn't
+    // depend on the Ink award below at all) -- set it immediately rather
+    // than waiting on the network round-trip.
+    if (subtitleEl) subtitleEl.textContent = '전적에 기록되지 않습니다';
+    if (titleEl) titleEl.textContent = label;
+
+    // §6.5: Ink is a real account currency, so the amount MUST come from the
+    // server's response -- never assume/display the nominal full 4/1 amount
+    // client-side (the daily cap in §6.1 can zero it out or partially award
+    // it, e.g. 18/20 + a win only awards 2, not 4).
+    API.economy.practiceResult(result).then((data) => {
+      if (!titleEl) return;
+      // §7.3's exact copy table, generalized to whatever amount the server
+      // actually awarded (covers both the table's literal 4/1 rows and the
+      // partial-award case the table doesn't spell out but the daily-cap
+      // math in §6.1/§6.4 clearly implies can happen).
+      titleEl.textContent = data.inkAwarded > 0
+        ? `${label} · +${data.inkAwarded} 잉크`
+        : `${label} · 오늘 연습 잉크 한도 도달(0 잉크)`;
+    }).catch(() => {
+      // Network/session hiccup reporting the result -- don't block
+      // navigation over a non-critical display value (same "leave it
+      // showing a sane default" philosophy as App.refreshInkBalance()'s own
+      // catch), just flag that the Ink figure above couldn't be confirmed.
+      if (subtitleEl) subtitleEl.textContent = '전적에 기록되지 않습니다 · 잉크 지급 확인 실패';
+    });
+  }
+
+  // Swaps the real-PvP "다시 플레이" button out for the practice-mode pair
+  // ("다시 연습하기" / "로비로 돌아가기", §7.4) on both the victory and defeat
+  // screens -- "메인 메뉴" is untouched (same button, same handler, works
+  // identically for both modes, see js/main.js).
+  function showPracticeMatchEndButtons() {
+    if (el.btnRestartVictory) el.btnRestartVictory.classList.add('hidden');
+    if (el.btnRestartDefeat) el.btnRestartDefeat.classList.add('hidden');
+    if (el.btnPracticeAgainVictory) el.btnPracticeAgainVictory.classList.remove('hidden');
+    if (el.btnPracticeAgainDefeat) el.btnPracticeAgainDefeat.classList.remove('hidden');
+    if (el.btnPracticeLobbyVictory) el.btnPracticeLobbyVictory.classList.remove('hidden');
+    if (el.btnPracticeLobbyDefeat) el.btnPracticeLobbyDefeat.classList.remove('hidden');
+  }
+
+  // Restores the real-PvP default button set. Called at the start of EVERY
+  // fresh match (see onStateChange's 'howto'/'first' hook above, unguarded
+  // on `active`) so a practice match's button-swap never leaks into a
+  // later real PvP match's end screen -- ui.js's own title/subtitle
+  // rendering already self-corrects every match (it's driven straight off
+  // AL.state.matchResult on every render), but button visibility is DOM
+  // state nothing else ever resets, so this module (the only thing that
+  // ever turns it on) is responsible for turning it back off too.
+  function resetMatchEndUI() {
+    if (el.btnRestartVictory) el.btnRestartVictory.classList.remove('hidden');
+    if (el.btnRestartDefeat) el.btnRestartDefeat.classList.remove('hidden');
+    if (el.btnPracticeAgainVictory) el.btnPracticeAgainVictory.classList.add('hidden');
+    if (el.btnPracticeAgainDefeat) el.btnPracticeAgainDefeat.classList.add('hidden');
+    if (el.btnPracticeLobbyVictory) el.btnPracticeLobbyVictory.classList.add('hidden');
+    if (el.btnPracticeLobbyDefeat) el.btnPracticeLobbyDefeat.classList.add('hidden');
+  }
+
+  // ===========================================================================
   // Init
   // ===========================================================================
 
@@ -217,7 +360,8 @@ const Practice = (() => {
   function init() {
     cache();
     AL.onChange(onStateChange);
+    AL.onMatchEnd(handlePracticeMatchEnd);
   }
 
-  return { init, start, stop };
+  return { init, start, stop, restart };
 })();

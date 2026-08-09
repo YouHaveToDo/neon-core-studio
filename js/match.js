@@ -108,6 +108,12 @@ const Match = (() => {
     el.roomListError = document.getElementById('room-list-error');
     el.btnLobbyRetry = document.getElementById('btn-lobby-retry');
 
+    // Practice-mode entry point (docs/design/practice-mode-proposal.md §9):
+    // emphasized CTA inside the existing empty-room-list state, de-emphasized
+    // persistent text link when the list has rooms in it.
+    el.btnLobbyPracticeEmpty = document.getElementById('btn-lobby-practice-empty');
+    el.btnLobbyPracticeFilled = document.getElementById('btn-lobby-practice-filled');
+
     el.lobbyPanelWaiting = document.getElementById('lobby-panel-waiting');
     el.lobbyWaitingTitle = document.getElementById('lobby-waiting-title');
     el.lobbyWaitingSubtitle = document.getElementById('lobby-waiting-subtitle');
@@ -223,6 +229,7 @@ const Match = (() => {
     el.roomListLoading.classList.remove('hidden');
     el.roomListEmpty.classList.add('hidden');
     el.roomListError.classList.add('hidden');
+    el.btnLobbyPracticeFilled.classList.add('hidden');
     el.roomList.innerHTML = '';
     fetchRooms();
     startPolling();
@@ -307,9 +314,13 @@ const Match = (() => {
 
     if (!rooms.length) {
       el.roomListEmpty.classList.remove('hidden');
+      el.btnLobbyPracticeFilled.classList.add('hidden'); // §9.2: empty state gets its own emphasized CTA instead
       return;
     }
     el.roomListEmpty.classList.add('hidden');
+    // §9.2: rooms exist -- de-emphasized persistent link instead of the
+    // empty state's emphasized CTA (not shown together with it).
+    el.btnLobbyPracticeFilled.classList.remove('hidden');
 
     rooms.forEach((room) => {
       const row = document.createElement('button');
@@ -328,12 +339,15 @@ const Match = (() => {
     el.roomListLoading.classList.add('hidden');
     el.roomList.innerHTML = '';
     el.roomListEmpty.classList.add('hidden');
+    el.btnLobbyPracticeFilled.classList.add('hidden');
     el.roomListError.classList.remove('hidden');
   }
 
   function setRoomListInteractive(enabled) {
     el.roomList.classList.toggle('room-list-busy', !enabled);
     el.btnLobbyCreate.disabled = !enabled;
+    el.btnLobbyPracticeEmpty.disabled = !enabled;
+    el.btnLobbyPracticeFilled.disabled = !enabled;
   }
 
   function showToast(message) {
@@ -407,6 +421,32 @@ const Match = (() => {
       setRoomListInteractive(true);
       showToast(err.message || '방에 참가하지 못했습니다');
     }
+  }
+
+  // ---- 연습 모드 진입점 (design doc §9) -----------------------------------------
+  // Both the empty-state CTA and the filled-state link call this -- CEO
+  // decision #1 (§0) plus §9.2: no separate deck-select step, the deck the
+  // player already picked to reach this screen (selectedDeck) is mirrored
+  // to the AI as-is (§2). AL.startMatch() (called inside Practice.start())
+  // takes it from here -- its own screen transition to 'howto'/'battle'
+  // hides #screen-lobby exactly the same way the real match-start handoff
+  // (handleTurnStarted below) does, so no explicit Screens.show() call is
+  // needed here.
+  function onPracticeClick() {
+    if (!selectedDeck) return; // defensive -- shouldn't be reachable without a chosen deck
+    stopPolling();
+    hideToast();
+    Practice.start(expandDeck(selectedDeck.cards));
+  }
+
+  // "로비로 돌아가기" (design doc §7.4, from the practice-mode result
+  // screen) -- re-enters the room list directly (skipping deck-select,
+  // exactly like playAgain() below skips straight to deck-select rather
+  // than further back) using the same selectedDeck this module already
+  // held onto from before the practice match started.
+  function returnToLobby() {
+    if (!selectedDeck) { showDeckSelect(account); return; } // defensive fallback
+    showRoomList();
   }
 
   // ---- back navigation --------------------------------------------------------
@@ -611,7 +651,10 @@ const Match = (() => {
     el.btnLobbyRetry.addEventListener('click', fetchRooms);
 
     el.btnLobbyWaitingBack.addEventListener('click', onBackFromWaiting);
+
+    el.btnLobbyPracticeEmpty.addEventListener('click', onPracticeClick);
+    el.btnLobbyPracticeFilled.addEventListener('click', onPracticeClick);
   }
 
-  return { init, showDeckSelect, playAgain };
+  return { init, showDeckSelect, playAgain, returnToLobby };
 })();
