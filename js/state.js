@@ -590,23 +590,40 @@ const AL = (() => {
   function skillBonus(actor) { return actor.powers.ironSkin * 2; }
 
   // Weaken damage-order integration (docs/design/card-shop-currency-
-  // proposal.md §3, exact 5-step order):
+  // proposal.md §3, exact 5-step order, wording updated per docs/design/
+  // fractional-damage-proposal.md §5/§7 Option B -- CEO-approved: the old
+  // floor-to-integer step-3 behavior was replaced by true fractional
+  // persistence, see that doc for the full rationale/proof this can only
+  // ever produce a whole number or exactly ".5" given the current card pool):
   //   1. card's own base damage + card-specific conditional bonus
   //   2. + attacker's Bloodlust bonus
-  //   3. *** if the ATTACKER has >=1 Weaken stack, x0.75 and floor ***
+  //   3. *** if the ATTACKER has >=1 Weaken stack, x0.75 -- NOT rounded or
+  //       floored, the exact fractional result flows through unchanged ***
   //   4. subtract target's block (unless the card ignores block)
   //   5. apply remainder to target's HP
   // Steps 4-5 are already applyDamage()/dealDamage()'s job (unchanged by
-  // this feature). This function is purely step 3, and every call site in
-  // applyCardEffect() below is expected to have already folded steps 1-2
-  // into `rawDamage` before calling this -- i.e. `applyDamage(target,
+  // this feature -- both already work correctly with a fractional `amount`,
+  // per fractional-damage-proposal.md §5.5: block/HP comparisons and
+  // arithmetic here are all plain IEEE754-safe +/-/min/max ops). This
+  // function is purely step 3, and every call site in applyCardEffect()
+  // below is expected to have already folded steps 1-2 into `rawDamage`
+  // before calling this -- i.e. `applyDamage(target,
   // applyWeakenToDamage(actor, <step1+2 total>), ignoreBlock)`. Deliberately
   // keyed off `actor` (the character PLAYING the Attack card), never
   // `target` -- spec is explicit Weaken reduces "that character's own
   // Attack-card damage output", not "damage taken", so this must never be
   // read as a defensive stat.
+  //
+  // Fractional-state note (fractional-damage-proposal.md §5.2): this is the
+  // ONLY place fractions can originate. From here they flow untouched into
+  // `target.block` (dealDamage()'s `target.block -= absorbed`, when block
+  // only partially absorbs a fractional hit) and `target.hp` (dealDamage()'s
+  // `target.hp -= remaining`), and can persist there indefinitely across
+  // turns -- HP/block are no longer guaranteed-integer state. Mana, Weaken
+  // stack counts, and all js/data.js card values are explicitly NOT affected
+  // (Weaken's multiply never touches them) and stay integer as before.
   function applyWeakenToDamage(actor, rawDamage) {
-    return actor.weaken > 0 ? Math.floor(rawDamage * 0.75) : rawDamage;
+    return actor.weaken > 0 ? rawDamage * 0.75 : rawDamage;
   }
 
   function applyCardEffect(card, actor, target) {

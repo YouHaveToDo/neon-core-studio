@@ -16,6 +16,20 @@
 const UI = (() => {
   const el = {};
 
+  // docs/design/fractional-damage-proposal.md §5.4/§7 (Option B, CEO-
+  // approved): internal state (HP/block) keeps full fractional precision
+  // (js/state.js's applyWeakenToDamage() no longer floors/rounds), but every
+  // number shown to the player renders as a rounded integer -- round-half-up
+  // via the plain `Math.round()` the doc explicitly calls out as the reused
+  // display rule (same rounding direction Option A would have used at the
+  // engine level; here it's applied one layer up, at render time only).
+  // This is the single place that rounding happens for display; every render
+  // site below (HP text x2, block text x2, damage/block/heal FX popups x3)
+  // must funnel through this rather than each re-implementing Math.round.
+  function fmtStat(n) {
+    return Math.round(n);
+  }
+
   // Keyed reconciliation cache for the hand: state.player.handKeys[i] -> the
   // DOM node currently representing that card instance. Reused across
   // renders so existing cards are never destroyed/recreated (which used to
@@ -134,11 +148,11 @@ const UI = (() => {
 
     const hpPct = Math.max(0, (opp.hp / opp.maxHp) * 100);
     el.opponentHpFill.style.width = hpPct + '%';
-    el.opponentHpText.textContent = `${opp.hp} / ${opp.maxHp}`;
+    el.opponentHpText.textContent = `${fmtStat(opp.hp)} / ${fmtStat(opp.maxHp)}`;
 
     if (opp.block > 0) {
       el.opponentBlockWrap.classList.remove('hidden');
-      el.opponentBlockText.textContent = opp.block;
+      el.opponentBlockText.textContent = fmtStat(opp.block);
     } else {
       el.opponentBlockWrap.classList.add('hidden');
     }
@@ -148,10 +162,10 @@ const UI = (() => {
     el.opponentDiscardCount.textContent = opp.discardPile.length;
     el.opponentHandCount.textContent = `${opp.hand.length}장`;
 
-    el.playerHpText.textContent = `${state.player.hp} / ${state.player.maxHp}`;
+    el.playerHpText.textContent = `${fmtStat(state.player.hp)} / ${fmtStat(state.player.maxHp)}`;
     if (state.player.block > 0) {
       el.playerBlockWrap.classList.remove('hidden');
-      el.playerBlockText.textContent = state.player.block;
+      el.playerBlockText.textContent = fmtStat(state.player.block);
     } else {
       el.playerBlockWrap.classList.add('hidden');
     }
@@ -338,15 +352,19 @@ const UI = (() => {
   function handleFx(name, payload) {
     const side = payload.side || 'player';
     if (name === 'damage') {
+      // payload.amount/blocked can now be fractional (a Weaken-reduced hit,
+      // fractional-damage-proposal.md §5.1) -- comparisons against 0 are
+      // unaffected by that (0.5 > 0 is still true), only the displayed
+      // number itself needs the fmtStat() rounding wrapper.
       if (payload.amount > 0) {
-        spawnPopup(side, '-' + payload.amount, '');
+        spawnPopup(side, '-' + fmtStat(payload.amount), '');
       } else if (payload.blocked > 0) {
         spawnPopup(side, 'Blocked', 'block-pop');
       }
     } else if (name === 'block') {
-      spawnPopup(side, '+' + payload.amount + ' Block', 'block-pop');
+      spawnPopup(side, '+' + fmtStat(payload.amount) + ' Block', 'block-pop');
     } else if (name === 'heal') {
-      spawnPopup(side, '+' + payload.amount, 'heal');
+      spawnPopup(side, '+' + fmtStat(payload.amount), 'heal');
     }
   }
 

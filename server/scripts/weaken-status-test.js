@@ -25,6 +25,24 @@
  * available way to set it up from outside the module without adding a new,
  * speculative export nobody else needs yet.
  *
+ * ---- 2026-08 update: docs/design/fractional-damage-proposal.md §5/§7,
+ * Option B (CEO-approved) ----
+ * `applyWeakenToDamage()` no longer floors its `x0.75` result (was
+ * `Math.floor(rawDamage * 0.75)`, now just `rawDamage * 0.75`) -- the
+ * doc's §2.2 proves that with the current card pool (every Attack card's
+ * pre-Weaken total is always even) this multiply can only ever produce a
+ * whole number or exactly a ".5", never ".25"/".75". That fractional result
+ * now flows through dealDamage() untouched and can persist in
+ * target.hp/target.block indefinitely (§5.2/§5.3) rather than being
+ * truncated at the moment of calculation. Every assertion below that used
+ * to expect a floored integer (`floor(X*0.75)`) has been updated to expect
+ * the exact, un-floored fractional value instead; Tests G/H/I below are new,
+ * added specifically to cover the fractional-persistence/accumulation/
+ * display behavior this change introduces that the old floor-based engine
+ * never had to handle. `js/ui.js`'s display layer still rounds for the
+ * player-facing text (§5.4) -- Test I covers that separately, through the
+ * real js/ui.js render path (not just js/state.js).
+ *
  * Usage: node scripts/weaken-status-test.js
  * No server/DB required.
  */
@@ -63,6 +81,106 @@ function loadAL() {
   return vm.runInContext('AL', sandbox);
 }
 
+// ---- Minimal DOM stub, used only by Test I (display-formatting) --------
+// js/ui.js is a plain global <script> too (same convention as js/state.js,
+// confirmed by grep -- no window usage, document usage only via
+// getElementById/createElement/querySelectorAll, all covered below), so it
+// can be loaded into the SAME kind of vm sandbox as loadAL() above, given a
+// fake `document` just complete enough for cache()/renderBattle()/
+// handleFx() to run without throwing -- no real browser/jsdom dependency
+// needed for what Test I actually checks (rendered text content).
+function makeDomStub() {
+  function makeClassList() {
+    const set = new Set();
+    return {
+      add(c) { set.add(c); },
+      remove(c) { set.delete(c); },
+      toggle(c, force) {
+        if (force === undefined) {
+          if (set.has(c)) { set.delete(c); return false; }
+          set.add(c); return true;
+        }
+        if (force) set.add(c); else set.delete(c);
+        return force;
+      },
+      contains(c) { return set.has(c); },
+    };
+  }
+
+  function makeNode(id) {
+    // A real DOM element's `.textContent = <anything>` setter always
+    // coerces the assigned value to a string (e.g. `.textContent = 16`
+    // reads back as `"16"`, never the number 16) -- js/ui.js relies on that
+    // (assigns fmtStat()'s numeric Math.round() return straight to
+    // `.textContent` and to template-literal string interpolation both).
+    // Mirror that coercion here via a real getter/setter rather than a
+    // plain property, so Test I's string-equality checks below are testing
+    // the same string js/ui.js would actually put on a real page, not an
+    // artifact of this stub being looser than a real DOM.
+    let _text = '';
+    const node = {
+      id: id || '',
+      innerHTML: '',
+      title: '',
+      disabled: false,
+      dataset: {},
+      style: { setProperty() {}, removeProperty() {} },
+      children: [],
+      classList: makeClassList(),
+      appendChild(child) { this.children.push(child); return child; },
+      removeChild(child) { this.children = this.children.filter((c) => c !== child); },
+      remove() {},
+      addEventListener() {},
+      removeEventListener() {},
+      getBoundingClientRect() { return { left: 0, top: 0, width: 0, height: 0 }; },
+      setAttribute() {},
+      getAttribute() { return null; },
+    };
+    Object.defineProperty(node, 'textContent', {
+      get() { return _text; },
+      set(v) { _text = String(v); },
+      enumerable: true,
+    });
+    return node;
+  }
+
+  const byId = new Map();
+  return {
+    getElementById(id) {
+      if (!byId.has(id)) byId.set(id, makeNode(id));
+      return byId.get(id);
+    },
+    createElement() { return makeNode(); },
+    querySelectorAll() { return []; }, // only used by js/screens.js's Screens.show()
+  };
+}
+
+// Loads AL (js/data.js + js/state.js) AND the real js/ui.js + js/screens.js
+// against the DOM stub above, then wires them together exactly like
+// index.html does (UI.init() subscribes UI.render/handleFx to AL's
+// onChange/onFx) -- so every AL.* mutation the test makes below drives a
+// real render through the actual, unmodified rendering code, and `document`
+// (returned here too) can be used to read back exactly what a real page's
+// DOM would contain.
+function loadALWithUI() {
+  const repoRoot = path.join(__dirname, '..', '..');
+  const dataSrc = fs.readFileSync(path.join(repoRoot, 'js', 'data.js'), 'utf8');
+  const stateSrc = fs.readFileSync(path.join(repoRoot, 'js', 'state.js'), 'utf8');
+  const screensSrc = fs.readFileSync(path.join(repoRoot, 'js', 'screens.js'), 'utf8');
+  const uiSrc = fs.readFileSync(path.join(repoRoot, 'js', 'ui.js'), 'utf8');
+  const document = makeDomStub();
+  const sandbox = { setTimeout, clearTimeout, document };
+  vm.createContext(sandbox);
+  vm.runInContext(dataSrc, sandbox, { filename: 'js/data.js' });
+  vm.runInContext(stateSrc, sandbox, { filename: 'js/state.js' });
+  vm.runInContext(screensSrc, sandbox, { filename: 'js/screens.js' });
+  vm.runInContext(uiSrc, sandbox, { filename: 'js/ui.js' });
+  const AL = vm.runInContext('AL', sandbox);
+  const UI = vm.runInContext('UI', sandbox);
+  UI.init();
+  return { AL, UI, document };
+}
+
 // Fresh match, first player, tutorial overlay dismissed, turn-1 attack lock
 // cleared (that lock is an unrelated spec §6.3.1 feature — clearing it here
 // just lets this test play Attack cards on turn 1 without tripping over it).
@@ -85,7 +203,7 @@ function playSelfOrTarget(AL, handIndex) {
   if (AL.state.selected === handIndex) AL.targetOpponent();
 }
 
-console.log('\n== Test A: Weaken reduces an Attack card\'s damage by 25% (floored), no Bloodlust involved ==');
+console.log('\n== Test A: Weaken reduces an Attack card\'s damage by exactly 25%, un-floored (Option B: fractional result persists, no Bloodlust involved) ==');
 {
   const AL = freshBattle(loadAL());
   AL.state.player.weaken = 1;
@@ -94,7 +212,8 @@ console.log('\n== Test A: Weaken reduces an Attack card\'s damage by 25% (floore
   const hpBefore = AL.state.opponent.hp;
   playSelfOrTarget(AL, 0);
   const dealt = hpBefore - AL.state.opponent.hp;
-  assert(dealt === 4, `Strike (6 base) with Weaken 1 deals floor(6*0.75)=4 damage (got ${dealt})`);
+  assert(dealt === 4.5, `Strike (6 base) with Weaken 1 deals 6*0.75=4.5 damage, un-floored (got ${dealt})`);
+  assert(AL.state.opponent.hp === 45.5, `opponent's HP itself now persists the fractional value (50 - 4.5 = 45.5) (got ${AL.state.opponent.hp})`);
 }
 
 console.log('\n== Test A2: Weaken does NOT affect Skill cards ==');
@@ -128,11 +247,16 @@ console.log('\n== Test A4: Weaken does NOT reduce self-inflicted recoil damage (
   playSelfOrTarget(AL, 0);
   const dealtToTarget = oppHpBefore - AL.state.opponent.hp;
   const selfRecoil = selfHpBefore - AL.state.player.hp;
-  assert(dealtToTarget === 9, `Reckless Swing's 12 target damage is reduced by Weaken to floor(12*0.75)=9 (got ${dealtToTarget})`);
+  // 12 is a multiple of 4, so 12*0.75=9 lands exactly on a whole number even
+  // un-floored (fractional-damage-proposal.md §2.2/§4.2's mod-4 table: this
+  // is one of the "b=0 loss 0" rows) -- this assertion's value is unchanged
+  // by the floor removal, but it's still worth keeping as the "no fraction
+  // here" control case alongside Test A's "fraction here" case.
+  assert(dealtToTarget === 9, `Reckless Swing's 12 target damage x0.75 = 9 exactly (no fraction, target is a multiple of 4) (got ${dealtToTarget})`);
   assert(selfRecoil === 3, `Reckless Swing's fixed 3 self-recoil is NOT reduced by Weaken (it's not Attack-card damage dealt to a target) (got ${selfRecoil})`);
 }
 
-console.log('\n== Test B: Bloodlust + Weaken interaction, exact numbers from the task spec (base 10 + Bloodlust 4 = 14, x0.75 floored = 10) ==');
+console.log('\n== Test B: Bloodlust + Weaken interaction, un-floored (base 10 + Bloodlust 4 = 14, x0.75 = 10.5) ==');
 {
   const AL = freshBattle(loadAL());
   AL.state.player.powers.bloodlust = 2; // attackBonus() = stacks * 2 = 4
@@ -142,10 +266,10 @@ console.log('\n== Test B: Bloodlust + Weaken interaction, exact numbers from the
   const hpBefore = AL.state.opponent.hp;
   playSelfOrTarget(AL, 0);
   const dealt = hpBefore - AL.state.opponent.hp;
-  assert(dealt === 10, `Piercing Strike: base 10 + Bloodlust bonus 4 = 14, x0.75 floored = 10 (got ${dealt})`);
+  assert(dealt === 10.5, `Piercing Strike: base 10 + Bloodlust bonus 4 = 14, x0.75 = 10.5, un-floored (got ${dealt})`);
 }
 
-console.log('\n== Test C: Weaken order also holds with block present (steps 3 then 4, not the other way around) ==');
+console.log('\n== Test C: Weaken order also holds with block present (steps 3 then 4, not the other way around), block fully depleted ==');
 {
   const AL = freshBattle(loadAL());
   AL.state.player.weaken = 1;
@@ -156,12 +280,14 @@ console.log('\n== Test C: Weaken order also holds with block present (steps 3 th
   playSelfOrTarget(AL, 0);
   const dealt = hpBefore - AL.state.opponent.hp;
   const blockLeft = AL.state.opponent.block;
-  // Step 3 first: floor(6*0.75) = 4. Step 4: 4 - 3 block = 1 to HP, block -> 0.
-  // (If block were subtracted BEFORE Weaken instead, wrong order would give
-  // floor((6-3)*0.75) = 2 to HP with block at 0 -- a different, wrong number,
-  // so this also catches an accidental step-3/step-4 swap.)
-  assert(dealt === 1, `Weaken applies BEFORE block (floor(6*0.75)=4, then -3 block = 1 to HP), not after (got ${dealt} dealt)`);
-  assert(blockLeft === 0, `all 3 block consumed (got ${blockLeft} left)`);
+  // Step 3 first: 6*0.75 = 4.5 (no floor). Step 4: 4.5 - 3 block = 1.5 to
+  // HP, block fully depleted to exactly 0 (block was smaller than the
+  // fractional hit, so it happens to land on a whole number here -- Test H
+  // below covers the opposite case, where block absorbs the fractional hit
+  // WITHOUT fully depleting and is left holding a fractional remainder
+  // itself, fractional-damage-proposal.md §5.3 Example 2).
+  assert(dealt === 1.5, `Weaken applies BEFORE block (6*0.75=4.5, then -3 block = 1.5 to HP), not after (got ${dealt} dealt)`);
+  assert(blockLeft === 0, `all 3 block consumed, landing on exactly 0 in this case (got ${blockLeft} left)`);
 }
 
 console.log('\n== Test D: turn-END decay removes exactly 1 stack, on the WEAKENED character\'s own turn boundary, never the opponent\'s ==');
@@ -237,10 +363,11 @@ console.log('\n== Test D: turn-END decay removes exactly 1 stack, on the WEAKENE
 }
 
 console.log('\n== Test F: a real Weaken-1 grant (Crippling Blow) delivers exactly 1 effective turn of reduced damage -- the exact scenario docs/qa/card-shop-currency-milestone.md finding #3 found was a complete no-op ==');
-// This is the real-number regression check for finding #3: before the fix,
-// this entire test failed at the `dealt === 4` assertion below (Strike dealt
-// a full, unreduced 6, because the Weaken 1 Crippling Blow had just granted
-// was already decayed away by localTurnStart() before the player got to act).
+// This is the real-number regression check for finding #3: before that fix,
+// this entire test failed at the `dealt === 4.5` assertion below (Strike
+// dealt a full, unreduced 6, because the Weaken 1 Crippling Blow had just
+// granted was already decayed away by localTurnStart() before the player
+// got to act).
 {
   const AL = freshBattle(loadAL()); // player is first player, turn 1 is theirs
   setHand(AL, AL.state.player, []);
@@ -274,7 +401,7 @@ console.log('\n== Test F: a real Weaken-1 grant (Crippling Blow) delivers exactl
   const oppHpBefore = AL.state.opponent.hp;
   playSelfOrTarget(AL, 0);
   const dealt = oppHpBefore - AL.state.opponent.hp;
-  assert(dealt === 4, `Strike (6 base) is reduced by the still-active Weaken 1 to floor(6*0.75)=4 -- Crippling Blow's Weaken grant is NOT a no-op (got ${dealt})`);
+  assert(dealt === 4.5, `Strike (6 base) is reduced by the still-active Weaken 1 to 6*0.75=4.5, un-floored -- Crippling Blow's Weaken grant is NOT a no-op (got ${dealt})`);
 
   // That was the character's one effective turn -- decay fires when THIS turn ends.
   AL.endTurn();
@@ -305,13 +432,98 @@ console.log('\n== Test E: Weaken is public/mirrored state on BOTH sides, wired s
   AL.applyRemoteAction({ type: 'playCard', cardId: 'strike' });
   const dealt = hpBefore - AL.state.player.hp;
   assert(
-    dealt === 4,
-    `opponent's own Weaken (public/mirrored, exactly like block/hp) reduces THEIR Attack-card damage against the local player the same way (floor(6*0.75)=4) (got ${dealt})`
+    dealt === 4.5,
+    `opponent's own Weaken (public/mirrored, exactly like block/hp) reduces THEIR Attack-card damage against the local player the same way (6*0.75=4.5, un-floored) (got ${dealt})`
   );
   assert(
-    typeof AL.state.opponent.weaken === 'number' && AL.state.player.hp === hpBefore - 4,
+    typeof AL.state.opponent.weaken === 'number' && AL.state.player.hp === hpBefore - 4.5,
     'weaken stacks and their damage effect are visible on state.opponent directly (no HIDDEN-style masking, unlike hand contents)'
   );
+}
+
+console.log('\n== Test G (new, Option B): a second .5-damage hit accumulates to a whole number, not floating-point drift ==');
+// docs/design/fractional-damage-proposal.md §5.2: HP can persist as .5
+// across turns/plays. This checks the specific real-number concern the task
+// flagged -- does a SECOND fractional hit compound correctly (4.5 + 4.5 = 9
+// exactly), rather than accumulating IEEE754 rounding error. In practice
+// this domain is safe by construction: every value Weaken ever produces is
+// an integer or an exact multiple of 0.5 (§2.2), and 0.5 is 2^-1 -- exactly
+// representable in binary floating point -- so sums/differences of these
+// values can never drift, but this is worth proving with a real two-hit
+// sequence rather than just asserting it from the math.
+{
+  const AL = freshBattle(loadAL());
+  AL.state.player.weaken = 1;
+  AL.state.player.mana = 3;
+  setHand(AL, AL.state.player, ['strike', 'strike']); // two independent 4.5 hits
+  const hpBefore = AL.state.opponent.hp; // 50
+
+  playSelfOrTarget(AL, 0); // first Strike (now at hand index 0 again after splice)
+  const afterFirst = AL.state.opponent.hp;
+  assert(afterFirst === hpBefore - 4.5, `first Weakened Strike leaves HP at exactly ${hpBefore - 4.5} (got ${afterFirst})`);
+
+  playSelfOrTarget(AL, 0); // second Strike
+  const afterSecond = AL.state.opponent.hp;
+  assert(afterSecond === hpBefore - 9, `two consecutive Weakened Strikes (4.5 each) land on the exact whole number ${hpBefore - 9}, no drift (got ${afterSecond})`);
+  assert(Number.isInteger(afterSecond), `the accumulated result is a real, exact integer in JS (not e.g. 40.99999999999999) (got ${afterSecond})`);
+}
+
+console.log('\n== Test H (new, Option B): block partially absorbing a fractional hit WITHOUT fully depleting leaves block itself fractional (fractional-damage-proposal.md §5.3 Example 2) ==');
+{
+  const AL = freshBattle(loadAL());
+  AL.state.player.weaken = 1;
+  AL.state.player.mana = 3;
+  setHand(AL, AL.state.player, ['strike']); // base 6 -> 4.5 after Weaken
+  AL.state.opponent.block = 20; // deliberately overkill block, per §5.3 Example 2
+  const hpBefore = AL.state.opponent.hp;
+
+  playSelfOrTarget(AL, 0);
+
+  assert(AL.state.opponent.hp === hpBefore, `HP is completely untouched -- block alone absorbed the whole 4.5 hit (got ${AL.state.opponent.hp}, expected unchanged ${hpBefore})`);
+  assert(AL.state.opponent.block === 15.5, `block itself is left holding the fractional remainder (20 - 4.5 = 15.5), the case the original task framing didn't anticipate (got ${AL.state.opponent.block})`);
+}
+
+console.log('\n== Test I (new, Option B): the display layer (real js/ui.js, not a re-implementation) renders fractional HP/block/damage-popup values rounded, per §5.4 ==');
+{
+  const { AL, document } = loadALWithUI();
+  freshBattle(AL);
+
+  // --- I.1: opponent HP text + damage popup rounding, HP ends fractional ---
+  AL.state.player.weaken = 1;
+  AL.state.player.mana = 3;
+  setHand(AL, AL.state.player, ['strike']); // 6*0.75 = 4.5 unblocked
+  playSelfOrTarget(AL, 0); // triggers a real emit() -> UI.render() -> real DOM writes
+
+  const hpText = document.getElementById('opponent-hp-text').textContent;
+  assert(
+    hpText === '46 / 50',
+    `opponent HP text renders the internal 45.5 rounded to a whole number ("46 / 50", round-half-up per §5.4) while state stays fractional (got "${hpText}", internal hp ${AL.state.opponent.hp})`
+  );
+  assert(AL.state.opponent.hp === 45.5, `internal state itself is NOT touched by the display rounding -- still the real 45.5 (got ${AL.state.opponent.hp})`);
+
+  const popups = document.getElementById('dmg-popup-layer').children;
+  const lastPopup = popups[popups.length - 1];
+  assert(
+    !!lastPopup && lastPopup.textContent === '-5',
+    `the damage popup for this same 4.5 hit also renders rounded ("-5", Math.round(4.5)=5), through the same fmtStat() wrapper as the HP text (got "${lastPopup && lastPopup.textContent}")`
+  );
+
+  // --- I.2: block text rounds a fractional block value (§5.3 Example 2 seen through the UI) ---
+  AL.state.opponent.block = 15.5; // as Test H established this can happen; the
+  // next state-mutating action below (a self-targeted Defend) fires the same
+  // real emit() -> UI.render() path used everywhere else, forcing a fresh
+  // render against this manually-set value.
+  AL.state.player.mana = 3;
+  setHand(AL, AL.state.player, ['defend']); // any self-targeted no-op-ish action just to force a fresh emit()/render()
+  playSelfOrTarget(AL, 0);
+
+  const blockText = document.getElementById('opponent-block-text').textContent;
+  assert(
+    blockText === '16',
+    `opponent block text renders the fractional 15.5 rounded to "16" (round-half-up) (got "${blockText}")`
+  );
+  const blockWrapHidden = document.getElementById('opponent-block-wrap').classList.contains('hidden');
+  assert(!blockWrapHidden, `the block wrap is visible (not hidden) while block is a positive fractional value (15.5 > 0) (hidden=${blockWrapHidden})`);
 }
 
 console.log(`\n${failures === 0 ? 'ALL PASS' : `${failures} FAILURE(S)`}`);
