@@ -1,11 +1,12 @@
 # 소수점 데미지/HP 제안서 (Fractional Damage & HP Proposal)
 
-**상태: 제안 — 미승인.** CEO 확정 사항이 아니다. `js/state.js`의 `applyWeakenToDamage()`가
+**상태: 승인됨 — Option B로 진행.** `js/state.js`의 `applyWeakenToDamage()`가
 `Math.floor(rawDamage * 0.75)`로 항상 내림 처리하는 것("10 데미지 × 0.75 = 7.5 → 7로 내림")이
-불공정하다는 CEO 문제 제기에서 시작됐다. CEO는 "Weaken만 내림 대신 반올림으로 바꾸는" 더 작은
-대안 대신 **"게임에 소수점 HP/데미지를 도입한다"는 더 큰 방향을 명시적으로 선택**했다 — 이 문서는
-그 선택을 실제로 구현 가능한 스펙으로 설계하는 동시에, 그 선택의 실제 비용을 CEO가 완전한 정보를
-갖고 재확인할 수 있도록 두 옵션을 나란히 제시한다.
+불공정하다는 CEO 문제 제기에서 시작됐다. CEO는 수학적으로 동일한 결과를 훨씬 싼 비용(반올림 1줄
+수정, Option A)으로 얻을 수 있다는 걸 확인한 뒤에도 **§5 Option B("진짜 소수점 HP/방어도")를
+최종 선택**했다 — HP/방어도 상태 자체가 소수점을 갖게 되고, `js/ui.js` 렌더링 6~8곳과 이미
+QA까지 끝난 §3 Weaken 스펙 문구까지 손보는 더 큰 비용을 CEO가 인지한 채로 확정.
+§7의 "프로그래머 핸드오프용 요약"을 Option B 기준으로 구현하면 된다.
 
 **참고한 자료**: `js/state.js`(데미지 파이프라인 전체, `applyWeakenToDamage`/`dealDamage`/
 `applyDamage`/`applyBlock`), `js/data.js`(`CARD_DEFS`/`EXPANSION_CARD_DEFS`, `PLAYER_START`),
